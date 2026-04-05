@@ -1,0 +1,263 @@
+name: Build XCP-ng Community ISO
+
+on:
+  push:
+    branches:
+      - patchxolite
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tageu (e.g. 8.3.0-community-20260406)'
+        required: true
+
+jobs:
+  build-community-iso:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 120
+
+    steps:
+      # ── 0. Checkout your repo ────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── 1. Install system dependencies ──────────────────────────────────
+      - name: Install system tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            xorriso genisoimage isomd5sum \
+            rpm2cpio cpio rpm syslinux-utils \
+            createrepo-c rpm-build
+
+      # ── 2. Download and extract the official ISO ─────────────────────────
+      - name: Download official XCP-ng ISO
+        run: |
+          ISO_URL="https://mirrors.xcp-ng.org/isos/8.3/xcp-ng-8.3.0-20250606.2.iso"
+          wget -q --show-progress -O xcpng-official.iso "${ISO_URL}"
+
+      - name: Extract ISO
+        run: |
+          mkdir -p iso-work
+          xorriso -osirrox on -indev xcpng-official.iso \
+            -extract / iso-work/ 2>/dev/null || true
+          chmod -R u+w iso-work/
+
+      # ── 3. Detect XO Lite version from the ISO ───────────────────────────
+      # Avoids hardcoding — stays correct when Vates bumps the version
+      - name: Detect XO Lite version
+        id: xo-version
+        run: |
+          XO_RPM=$(find iso-work/Packages/ -name "xo-lite*.rpm" | head -1)
+          echo "rpm_path=${XO_RPM}" >> $GITHUB_OUTPUT
+
+          XO_VERSION=$(rpm -qp --queryformat '%{VERSION}' "${XO_RPM}" 2>/dev/null)
+          echo "version=${XO_VERSION}" >> $GITHUB_OUTPUT
+          echo "Detected XO Lite version: ${XO_VERSION}"
+
+      # ── 4. Clone xen-orchestra ─────────────────
+      - name: Clone xen-orchestra
+        run: |
+          git clone https://github.com/vatesfr/xen-orchestra.git
+
+      # ── 5. Apply community patch ─────────────────────────────────────────
+      - name: Apply community patch
+        run: |
+          cd xen-orchestra
+          git apply $GITHUB_WORKSPACE/patches/community-xoa-deploy.patch
+          echo "▶ Patch applied. Modified files:"
+          git diff --name-only HEAD
+
+      # ── 6. Set up Node.js and Yarn ───────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Match the Node version expected by the monorepo at this tag.
+          # xo-lite v0.8.0 was built with Node 20 LTS.
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: xen-orchestra/yarn.lock
+
+      - name: Enable Corepack (exact Yarn version from monorepo)
+        run: |
+          corepack enable
+          cd xen-orchestra
+          # Verify yarn version matches the monorepo's packageManager field
+          yarn --version
+
+      # ── 7. Install dependencies and build ────────────────────────────────
+      - name: Install dependencies
+        working-directory: xen-orchestra
+        run: yarn install --frozen-lockfile
+
+      - name: Build XO Lite
+        working-directory: xen-orchestra
+        run: |
+          # TURBO_TELEMETRY_DISABLED avoids CI noise from telemetry prompts
+          TURBO_TELEMETRY_DISABLED=1 yarn build:xo-lite
+
+      - name: Verify build output
+        run: |
+          DIST="xen-orchestra/@xen-orchestra/lite/dist"
+          echo "▶ Build output:"
+          ls -lh "${DIST}/"
+          # Fail early if the critical files are missing
+          test -f "${DIST}/index.html"   || (echo "❌ index.html missing"; exit 1)
+          test -d "${DIST}/assets"       || (echo "❌ assets/ missing";    exit 1)
+          echo "✅ Build output looks correct"
+
+      # ── 8. Verify patch took effect in the BUILD output ──────────────────
+      - name: Verify community URL in built assets
+        run: |
+          DIST="xen-orchestra/@xen-orchestra/lite/dist"
+
+          echo "── Checking xoa.io is GONE ────────────────────────────────"
+          if grep -Irl 'xoa\.io' "${DIST}"; then
+            echo "❌ FAIL: xoa.io reference still present in built output!"
+            exit 1
+          else
+            echo "✅ PASS: xoa.io not found in dist"
+          fi
+
+          echo "── Checking lite.xen-orchestra.com is GONE ─────────────────"
+          if grep -Irl 'lite\.xen-orchestra\.com' "${DIST}"; then
+            echo "❌ FAIL: lite.xen-orchestra.com still present in built output!"
+            exit 1
+          else
+            echo "✅ PASS: lite.xen-orchestra.com not found in dist"
+          fi
+
+          echo "── Checking community image.txt URL is PRESENT ─────────────"
+          if grep -Irl ':3000' "${DIST}"; then
+            echo "✅ PASS: community image URL found in dist"
+          else
+            echo "❌ FAIL: community image URL not found!"
+            exit 1
+          fi
+
+      # ── 9. Package the dist output as a tarball for rpmbuild ─────────────
+      - name: Package tarball for rpmbuild
+        run: |
+          VERSION="${{ steps.xo-version.outputs.version }}"
+          DIST="xen-orchestra/@xen-orchestra/lite"
+          TARBALL_DIR="xo-lite-${VERSION}"
+
+          mkdir "${TARBALL_DIR}"
+          # Copy the Vite build output
+          cp -a "${DIST}/dist/." "${TARBALL_DIR}/"
+          # The spec's %install removes these two, so they must be present
+          cp "${DIST}/LICENSE"      "${TARBALL_DIR}/"
+          cp "${DIST}/CHANGELOG.md" "${TARBALL_DIR}/"
+
+          tar -czf "xo-lite-${VERSION}.tar.gz" "${TARBALL_DIR}/"
+          echo "▶ Tarball contents:"
+          tar -tzf "xo-lite-${VERSION}.tar.gz" | head -20
+
+      # ── 10. Build the RPM ─────────────────────────────────────────────────
+      - name: Set up rpmbuild directories
+        run: |
+          mkdir -p ~/rpmbuild/{SOURCES,SPECS,RPMS,SRPMS,BUILD,BUILDROOT}
+
+      - name: Copy sources and spec
+        run: |
+          VERSION="${{ steps.xo-version.outputs.version }}"
+          cp "xo-lite-${VERSION}.tar.gz" ~/rpmbuild/SOURCES/
+
+          # Inject the detected version into the spec
+          sed "s/^Version:.*/Version: ${VERSION}/" \
+            "$GITHUB_WORKSPACE/SPECS/xo-lite-community.spec" \
+            > ~/rpmbuild/SPECS/xo-lite-community.spec
+
+      - name: Build RPM
+        run: |
+          rpmbuild -ba ~/rpmbuild/SPECS/xo-lite-community.spec \
+            --define "_topdir $HOME/rpmbuild"
+
+          NEW_RPM=$(find ~/rpmbuild/RPMS/noarch/ -name "xo-lite*.rpm" | head -1)
+          echo "new_rpm=${NEW_RPM}" >> $GITHUB_ENV
+          echo "▶ Built RPM: ${NEW_RPM}"
+          rpm -qip "${NEW_RPM}"
+
+      # ── 11. Swap the RPM into the ISO ─────────────────────────────────────
+      - name: Swap RPM in ISO
+        run: |
+          # Remove the original RPM
+          rm -f "${{ steps.xo-version.outputs.rpm_path }}"
+          # Install the community one
+          cp "${new_rpm}" iso-work/Packages/
+          echo "▶ Community RPM installed into iso-work/Packages/"
+
+      # ── 12. Patch isolinux.cfg ────────────────────────────────────────────
+      - name: Patch isolinux.cfg for unattended install
+        run: |
+          ISOLINUX_CFG="iso-work/boot/isolinux/isolinux.cfg"
+          sed -i \
+            's|--- /install.img|answerfile=http://192.168.0.1:3000/answerfile.xml install --- /install.img|' \
+            "${ISOLINUX_CFG}"
+          echo "▶ isolinux.cfg after patch:"
+          cat "${ISOLINUX_CFG}"
+
+      # ── 13. Regenerate repo metadata ──────────────────────────────────────
+      - name: Update ISO package index
+        run: |
+          createrepo_c --update iso-work/
+
+      # ── 14. Repack ISO ────────────────────────────────────────────────────
+      - name: Repack ISO
+        run: |
+          TAG="ce"
+          OUTPUT="xcp-ng-${TAG}.iso"
+
+          dd if=xcpng-official.iso bs=1 count=432 of=iso-mbr.bin status=none
+
+          xorriso -as mkisofs \
+            -o "${OUTPUT}" \
+            -isohybrid-mbr iso-mbr.bin \
+            -r -J -joliet-long \
+            -V "XCP-ng ${TAG}" \
+            -c boot/isolinux/boot.cat \
+            -b boot/isolinux/isolinux.bin \
+              -no-emul-boot \
+              -boot-load-size 4 \
+              -boot-info-table \
+            -eltorito-alt-boot \
+            -e boot/efiboot.img \
+              -no-emul-boot \
+              -isohybrid-gpt-basdat \
+            iso-work/ 2>&1 | tail -30
+
+          isohybrid --uefi "${OUTPUT}"
+          implantisomd5 "${OUTPUT}" || true
+
+          echo "OUTPUT=${OUTPUT}" >> $GITHUB_ENV
+          ls -lh "${OUTPUT}"
+
+      # ── 15. Publish GitHub Release ────────────────────────────────────────
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 'XCP-ng Community Edition ${{ github.event.inputs.release_tag }}'
+          body: |
+            ## XCP-ng Community ISO — Community Edition
+
+            Unofficial community build of XCP-ng with XO Lite patched
+            to deploy the [community XOA image](https://xo-image.yawn.fi/)
+            instead of the official Vates appliance.
+
+            ### What's different
+            - XO Lite is built from source at tag `xo-lite-v${{ steps.xo-version.outputs.version }}`
+            - The "Deploy XOA" button fetches the latest community image URL
+              at runtime from `https://xo-image.yawn.fi/downloads/image.txt`
+            - The `lite.xen-orchestra.com` fallback loader is removed from `index.html`
+            - Expected image format: XVA (not XVA.gz)
+            - Everything else is identical to the official XCP-ng 8.3 ISO
+
+            ### Base ISO
+            Official XCP-ng 8.3.0-20250606.2
+
+            > **Note:** Community build. Not supported by Vates.
+          files: ${{ env.OUTPUT }}
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

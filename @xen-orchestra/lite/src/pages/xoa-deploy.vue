@@ -361,7 +361,7 @@ async function deploy() {
 
     vmRef.value = (
       (await xapi.call('VM.import', [
-        'http://xoa.io/xva',
+        'http://192.168.0.1:3000/image.xva',
         selectedSr.value.$ref,
         false, // full_restore
         false, // force
@@ -371,7 +371,10 @@ async function deploy() {
     status.value = t('deploy-xoa-status:configuring')
 
     const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
-    await xapi.call('VIF.destroy', [vifRef])
+
+    if (vifRef.length > 0) {
+      await xapi.call('VIF.destroy', [vifRef])
+    }
 
     if (!deploying.value) {
       return
