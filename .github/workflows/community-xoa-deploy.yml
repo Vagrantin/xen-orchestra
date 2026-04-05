@@ -28,7 +28,7 @@ jobs:
           sudo apt-get install -y \
             xorriso genisoimage isomd5sum \
             rpm2cpio cpio rpm syslinux-utils \
-            createrepo-c rpm-build
+            createrepo-c
 
       # ── 2. Download and extract the official ISO ─────────────────────────
       - name: Download official XCP-ng ISO
