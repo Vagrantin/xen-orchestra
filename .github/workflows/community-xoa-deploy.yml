@@ -139,13 +139,15 @@ jobs:
       - name: Inspect source tree before packaging
         run: |
           PKG="xen-orchestra/@xen-orchestra/lite"
+          echo "── scripts/ ────────────────────────────────────────"
+          ls -la "${PKG}/scripts/" 2>/dev/null || echo "(no scripts/ dir)"
           echo "── Package root ────────────────────────────────────"
           ls -la "${PKG}/"
-          echo "── Monorepo root ───────────────────────────────────"
-          ls -la xen-orchestra/ | grep -iE 'license|changelog|readme'
+          echo "── Monorepo root (license files) ───────────────────"
+          ls xen-orchestra/ | grep -iE 'license|changelog'
           echo "── Dist output ─────────────────────────────────────"
           ls -lh "${PKG}/dist/"
-      
+
       - name: Package tarball for rpmbuild
         run: |
           VERSION="${{ steps.xo-version.outputs.version }}"
@@ -161,8 +163,8 @@ jobs:
           # CHANGELOG.md lives inside the package
           cp "${PKG}/CHANGELOG.md" "${TARBALL_DIR}/"
       
-          # xolite.html lives inside the package (entry point for the XAPI web server)
-          cp "${PKG}/xolite.html" "${TARBALL_DIR}/"
+          # xolite-loader.html lives under scripts/ and is renamed to xolite.html
+          cp "${PKG}/scripts/xolite-loader.html" "${TARBALL_DIR}/xolite.html"
       
           # LICENSE lives at the monorepo root as LICENSE.md — Vates renames it to
           # LICENSE when building the official release tarball; we replicate that.
