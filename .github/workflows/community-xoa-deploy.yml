@@ -136,24 +136,58 @@ jobs:
           fi
 
       # ── 9. Package the dist output as a tarball for rpmbuild ─────────────
+      - name: Inspect source tree before packaging
+        run: |
+          PKG="xen-orchestra/@xen-orchestra/lite"
+          echo "── Package root ────────────────────────────────────"
+          ls -la "${PKG}/"
+          echo "── Monorepo root ───────────────────────────────────"
+          ls -la xen-orchestra/ | grep -iE 'license|changelog|readme'
+          echo "── Dist output ─────────────────────────────────────"
+          ls -lh "${PKG}/dist/"
+      
       - name: Package tarball for rpmbuild
         run: |
           VERSION="${{ steps.xo-version.outputs.version }}"
-          DIST="xen-orchestra/@xen-orchestra/lite"
+          PKG="xen-orchestra/@xen-orchestra/lite"
+          REPO="xen-orchestra"
           TARBALL_DIR="xo-lite-${VERSION}"
-
+      
           mkdir "${TARBALL_DIR}"
-          # Copy the Vite build output
-          cp -a "${DIST}/dist/." "${TARBALL_DIR}/"
-          # The spec's %install removes these two, so they must be present
-          touch LICENSE
-          cp "LICENSE" "${TARBALL_DIR}/"
-          cp "${DIST}/CHANGELOG.md" "${TARBALL_DIR}/"
-
-          tar -czf "xo-lite-${VERSION}.tar.gz" "${TARBALL_DIR}/"
+      
+          # Vite build output
+          cp -a "${PKG}/dist/." "${TARBALL_DIR}/"
+      
+          # CHANGELOG.md lives inside the package
+          cp "${PKG}/CHANGELOG.md" "${TARBALL_DIR}/"
+      
+          # xolite.html lives inside the package (entry point for the XAPI web server)
+          cp "${PKG}/xolite.html" "${TARBALL_DIR}/"
+      
+          # LICENSE lives at the monorepo root as LICENSE.md — Vates renames it to
+          # LICENSE when building the official release tarball; we replicate that.
+          if [ -f "${REPO}/LICENSE" ]; then
+            cp "${REPO}/LICENSE" "${TARBALL_DIR}/LICENSE"
+          elif [ -f "${REPO}/LICENSE.md" ]; then
+            cp "${REPO}/LICENSE.md" "${TARBALL_DIR}/LICENSE"
+          else
+            echo "❌ No LICENSE file found in monorepo root"
+            ls "${REPO}/" | grep -i license || true
+            exit 1
+          fi
+      
           echo "▶ Tarball contents:"
-          tar -tzf "xo-lite-${VERSION}.tar.gz" | head -20
-
+          ls -lh "${TARBALL_DIR}/"
+      
+          # Verify everything the spec expects is present before we tar
+          for f in index.html assets favicon.svg manifest.webmanifest \
+                    xolite.html build.json LICENSE CHANGELOG.md; do
+            test -e "${TARBALL_DIR}/${f}" \
+              || (echo "❌ Missing: ${TARBALL_DIR}/${f}"; exit 1)
+          done
+          echo "✅ All expected files present"
+      
+          tar -czf "xo-lite-${VERSION}.tar.gz" "${TARBALL_DIR}/"
       # ── 10. Build the RPM ─────────────────────────────────────────────────
       - name: Set up rpmbuild directories
         run: |
