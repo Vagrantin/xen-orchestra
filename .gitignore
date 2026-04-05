@@ -33,6 +33,7 @@ yarn-error.log
 yarn-error.log.*
 .env
 *.tsbuildinfo
+*.swp
 
 # code coverage
 .nyc_output/
