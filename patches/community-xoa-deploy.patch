@@ -45,7 +45,7 @@ index 26937a4d7..8fac217e3 100644
      const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
 -    await xapi.call('VIF.destroy', [vifRef])
 +
-+    if (vifRef.length > 0) {
++    if (vifRef !== undefined) {
 +    	await xapi.call('VIF.destroy', [vifRef])
 +    }
  
