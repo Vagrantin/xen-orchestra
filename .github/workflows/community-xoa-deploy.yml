@@ -74,7 +74,7 @@ jobs:
         with:
           # Match the Node version expected by the monorepo at this tag.
           # xo-lite v0.8.0 was built with Node 20 LTS.
-          node-version: '20'
+          node-version: '22.3'
           cache: 'yarn'
           cache-dependency-path: xen-orchestra/yarn.lock
 
