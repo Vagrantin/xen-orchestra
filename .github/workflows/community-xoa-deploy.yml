@@ -146,9 +146,6 @@ jobs:
           # Copy the Vite build output
           cp -a "${DIST}/dist/." "${TARBALL_DIR}/"
           # The spec's %install removes these two, so they must be present
-          pwd
-          ls
-          cp "xen-orchestra/LICENSE"      "${TARBALL_DIR}/"
           cp "${DIST}/CHANGELOG.md" "${TARBALL_DIR}/"
 
           tar -czf "xo-lite-${VERSION}.tar.gz" "${TARBALL_DIR}/"
