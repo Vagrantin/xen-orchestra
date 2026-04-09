@@ -26,9 +26,8 @@
 | `patchxolite` | Working branch — ISO build workflow and all community patches live here |
 
 The ISO build workflow is triggered only on pushes to `patchxolite` (or via
-`workflow_dispatch`). The `master` branch exists solely to make upstream
-rebasing straightforward.
-
+`workflow_dispatch`). The `master` branch exists solely to stay in sync with
+upstream.
 ---
 
 ## What this build changes
@@ -36,7 +35,7 @@ rebasing straightforward.
 The official XCP-ng ISO ships a web application called **XO Lite** — a
 lightweight Xen Orchestra UI served directly from the host at
 `/opt/xensource/www/`. XO Lite includes a "Deploy XOA" page that downloads
-and provisions a full Xen Orchestra virtual appliance (XVA).
+and provisions a full Xen Orchestra (XVA).
 
 This build makes two targeted changes to XO Lite and leaves everything else
 in the ISO untouched.
@@ -67,7 +66,7 @@ version is always loaded directly.
 ```
 
 **Why:** Eliminates the dependency on an external Vates-controlled CDN.
-The community image is self-contained and air-gap friendly.
+The community image is self-contained.
 
 ---
 
@@ -76,7 +75,7 @@ The community image is self-contained and air-gap friendly.
 **File:** `@xen-orchestra/lite/src/pages/xoa-deploy.vue`
 
 The official deploy page calls `VM.import` with a hardcoded URL pointing to
-`http://xoa.io/xva` — Vates's proprietary appliance. This build replaces that
+`http://xoa.io/xva` — Vates's version of XOA. This build replaces that
 URL with the community image server.
 
 ```diff
@@ -84,7 +83,7 @@ URL with the community image server.
 +        'http://192.168.0.1:3000/image.xva',
 ```
 
-A defensive guard is also added around the VIF teardown step. The upstream
+At the VIF creation step, the upstream
 code unconditionally calls `VIF.destroy` on the first VIF returned by
 `VM.get_VIFs`. If the imported XVA happens to have no VIFs baked in, that
 call fails with a XAPI error and aborts the deploy. The patch makes the
@@ -97,20 +96,17 @@ destroy conditional:
 +    }
 ```
 
-**Why:** The community XVA is served from a local HTTP server
-(`192.168.0.1:3000`) that is assumed to be reachable during installation.
-The VIF guard prevents a crash on XVAs with no pre-existing network interface.
+**Why:** 
+The check on VIF existence prevents a crash on XVAs with no pre-existing network interface.
 
 > **Note:** The XVA image URL is currently hardcoded. A planned improvement
-> is to fetch the URL at runtime from
-> `https://xo-image.yawn.fi/downloads/image.txt` so the image can be updated
-> without rebuilding the ISO.
+> is to be able to enter the URL in the XO-lite UI if different from the default one.
 
 ---
 
 ## Workflow walkthrough (`community-xoa-deploy.yml`)
 
-The workflow runs on `ubuntu-latest` (GitHub Actions free tier) and produces
+The workflow runs on GitHub Actions and produces
 a bootable hybrid ISO published as a GitHub Release.
 
 ### Triggers
@@ -143,9 +139,7 @@ version string using `rpm -qp --queryformat`. This value is stored as
 **avoiding any hardcoded version number** in the workflow.
 
 #### Step 4 — Clone `vatesfr/xen-orchestra`
-Clones the upstream monorepo at HEAD of the default branch. The patch is
-applied at this point rather than checked in as a separate fork, keeping the
-build reproducible from a known upstream state.
+Clones the upstream repo. The patch is applied at this point.
 
 #### Step 5 — Apply the community patch
 ```bash
@@ -158,7 +152,7 @@ of truth for all XO Lite modifications. It targets two files:
 
 #### Step 6 — Node.js + Yarn
 Sets up Node 22.3 via `actions/setup-node` and enables Corepack so that the
-exact Yarn version declared in the monorepo's `packageManager` field is used
+exact Yarn version declared in the repo's `packageManager` field is used
 (`yarn.lock` is cached between runs).
 
 #### Step 7 — Install dependencies and build
@@ -166,7 +160,7 @@ exact Yarn version declared in the monorepo's `packageManager` field is used
 yarn install --frozen-lockfile
 TURBO_TELEMETRY_DISABLED=1 yarn build:xo-lite
 ```
-Builds only the `@xen-orchestra/lite` package using the monorepo's Turbo
+Builds only the `@xen-orchestra/lite` package using the repo's Turbo
 pipeline. The `TURBO_TELEMETRY_DISABLED=1` flag suppresses CI noise from
 telemetry prompts.
 
@@ -181,9 +175,6 @@ Three grep checks run against `dist/`:
 | `xoa.io` present | ❌ FAIL |
 | `lite.xen-orchestra.com` present | ❌ FAIL |
 | `:3000` (community server) present | ✅ PASS |
-
-This catches cases where the patch applied cleanly but Vite's bundler
-tree-shook or inlined something unexpectedly.
 
 #### Step 9 — Package tarball for rpmbuild
 Assembles a `xo-lite-<VERSION>/` directory that mirrors the layout expected
@@ -225,11 +216,9 @@ The boot menu entry is extended with an answerfile pointer and `install` flag:
 Before: --- /install.img
 After:  answerfile=http://192.168.0.1:3000/answerfile.xml install --- /install.img
 ```
-
-This enables unattended installation when an answerfile HTTP server is
-reachable at `192.168.0.1:3000` during boot. **If no server is present the
-installer falls back to interactive mode** (the parameter is simply ignored
-when the URL is unreachable — standard XCP-ng installer behaviour).
+This is a workaround currently to be able to skip GPG checks which are
+failing after ISO repacking. This is expected to be a step removed
+when the GPG check will be restored/fix.
 
 #### Step 13 — Regenerate repo metadata
 ```bash
@@ -258,55 +247,49 @@ The release notes summarise what is different from the official ISO.
 
 ## Known issues and future work
 
-### VIF / network selection bug in `xoa-deploy.vue`
+### VIF / network selection issue in `xoa-deploy.vue`
 `filteredNetworks` in the deploy page sorts all networks alphabetically.
-On a freshly installed XCP-ng host the first alphabetical entry is often
+On a freshly installed XCP-ng host the first alphabetical entry is time to time 
 **"Host internal management network"** (a non-routable internal bridge) rather
 than the physical `eth0`-backed network. `useFormSelect` auto-selects the
 first entry, so users who do not notice this will deploy XOA on the wrong
 network.
+This issue is happens because i'm using Ronivay's image which doesn't get 
+the interface provided when specifying it in XOLITE UI.
 
-Two remediation paths are tracked:
+Remediation paths are tracked:
 
 1. **Filter before sort** — exclude networks that have no associated PIF
    (i.e. no physical port) before sorting. The host internal management
    network has no PIF and would be removed automatically.
 2. **Require explicit selection** — disable the Deploy button until the user
    has actively chosen a network, preventing silent auto-selection.
+3. Recreate Ronivay's image that will be compatible with XO-LITE, I think it
+   should be design to retreive the configuration, but have no idea how to
+   do that yet
+
+### Login/Pass
+The default login and pass are the one set by Ronivay's image for now.
+Same as the about should get the one set by the user in XO-lite deploy UI.
+
+login: admin@admin.net
+pass: admin
+
+It must be changed at first login !
+
 
 ### XVA URL hardcoded
-The community XVA URL (`http://192.168.0.1:3000/image.xva`) is currently
-hardcoded in the patch. The intended architecture fetches the URL at runtime
-from `https://xo-image.yawn.fi/downloads/image.txt`, which decouples ISO
-rebuilds from image updates. This requires an additional `fetch` call in
-`xoa-deploy.vue` before the `VM.import` call.
-
-### `install.img` and answerfile injection
-The XCP-ng installer's `install.img` is a **SquashFS** filesystem (not cpio).
-If a locally-served answerfile is not viable in your environment, the
-answerfile XML can be injected directly into `install.img`:
-
-```bash
-# Extract
-unsquashfs -d installer-root iso-work/install.img
-
-# Drop answerfile.xml into installer-root/
-cp answerfile.xml installer-root/
-
-# Repack (must match original compression settings)
-sudo mksquashfs installer-root iso-work/install.img \
-  -comp xz -b 131072 -noappend -no-progress
-```
-
-Then change the kernel parameter to `answerfile=file:///answerfile.xml`.
-`file:///` resolves relative to the ramdisk root, not the ISO CD-ROM root.
+The community XVA URL is currently hardcoded in the patch.
+The intended architecture is to configure have this link configurable 
+which facilitate ISO and provide more flexibility to the user.
 
 ---
 
-## GPG notes
+## GPG notes - workaround to avoid install failure
 
-The community RPM is not GPG-signed. The XCP-ng installer enforces GPG
-verification by default. If you inject an answerfile, include these attributes
+The community RPM is not GPG-signed. Because the ISO repacking seems to brake it at least in 
+my experience. The XCP-ng installer enforces GPG verification by default. 
+To disable this behaviour an answerfile, include these attributes
 on the `<installation>` tag to suppress the check:
 
 ```xml
@@ -314,8 +297,6 @@ on the `<installation>` tag to suppress the check:
 ```
 
 Both attributes must be set explicitly — each defaults to `True` independently.
-This is not documented in the installer's `answerfile.txt`; it is only visible
-in `answerfile.py` source.
 
 ---
 
