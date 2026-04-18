@@ -124,7 +124,7 @@
               :label="t('admin-login')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput v-model="xoaUser" required placeholder="email@example.com" />
+              <FormInput value="admin@admin.net" placeholder="admin@admin.net" disabled />
             </VtsInputWrapper>
           </div>
           <div class="row">
@@ -132,13 +132,13 @@
               :label="t('admin-password')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput v-model="xoaPwd" type="password" required :placeholder="t('password')" />
+              <FormInput value="admin" placeholder="admin" disabled />
             </VtsInputWrapper>
             <VtsInputWrapper
               :label="t('admin-password-confirm')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput v-model="xoaPwdConfirm" type="password" required :placeholder="t('password')" />
+              <FormInput value="admin" placeholder="admin" disabled />
             </VtsInputWrapper>
           </div>
         </FormSection>
@@ -149,27 +149,15 @@
           </div>
           <div class="row">
             <VtsInputWrapper :label="t('ssh-login')">
-              <FormInput value="xoa" placeholder="xoa" disabled />
+              <FormInput value="xo" placeholder="xo" disabled />
             </VtsInputWrapper>
           </div>
           <div class="row">
             <VtsInputWrapper :label="t('ssh-password')">
-              <FormInput
-                v-model="sshPwd"
-                type="password"
-                :placeholder="t('password')"
-                :disabled="!enableSshAccount"
-                :required="enableSshAccount"
-              />
+              <FormInput value="xopass" placeholder="xopass" disabled />
             </VtsInputWrapper>
             <VtsInputWrapper :label="t('ssh-password-confirm')">
-              <FormInput
-                v-model="sshPwdConfirm"
-                type="password"
-                :placeholder="t('password')"
-                :disabled="!enableSshAccount"
-                :required="enableSshAccount"
-              />
+              <FormInput value="xopass" placeholder="xopass" disabled />
             </VtsInputWrapper>
           </div>
         </FormSection>
