@@ -1,0 +1,53 @@
+[Unit]
+Description=XOA Deploy Proxy — HTTP/gunzip bridge for XAPI VM.import
+Documentation=https://github.com/vatesfr/xen-orchestra
+# Start after the network is up (we need outbound HTTPS to Vates CDN)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/xensource/www/xoa-proxy.py
+Restart=on-failure
+RestartSec=5s
+
+# ── SSL configuration ────────────────────────────────────────────────────────
+# Certificate verification is ON by default (recommended for public Vates CDN).
+#
+# If your XOA image is hosted behind a self-signed certificate, choose ONE of:
+#
+#   Option A — CLI flag (edit ExecStart above):
+#     ExecStart=/usr/bin/python3 /opt/xensource/www/xoa-proxy.py --no-verify-ssl
+#
+#   Option B — Environment variable (uncomment the line below):
+#     Environment=XOA_PROXY_NO_VERIFY_SSL=1
+#
+# Other tunables (also settable via CLI, see --help):
+#   Environment=XOA_PROXY_PORT=9001
+#   Environment=XOA_PROXY_BIND=127.0.0.1
+
+# ── Logging ─────────────────────────────────────────────────────────────────
+# Output goes to journald: journalctl -u xoa-proxy -f
+StandardOutput=journal
+StandardError=journal
+
+# ── Minimal privilege hardening ──────────────────────────────────────────────
+# The proxy only needs outbound HTTPS and to listen on a loopback port > 1024.
+# No filesystem writes, no setuid, no new privileges.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Read-only access to the script itself; no write access to the rest of the FS.
+# (ProtectSystem=strict is not available on older CentOS 7-based XCP-ng builds;
+#  use 'full' as the safe fallback for XCP-ng 8.x)
+ProtectSystem=full
+ProtectHome=yes
+
+# Bind only to loopback — belt-and-suspenders with the Python-level BIND setting.
+# Note: RestrictAddressFamilies requires a kernel with seccomp. If the unit
+# fails to start, comment out the two lines below.
+RestrictAddressFamilies=AF_INET AF_INET6
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
