@@ -203,6 +203,29 @@ import { useRouter } from 'vue-router'
 
 const REQUIRED_GB = 20
 
+// ── XOA image source & proxy ──────────────────────────────────────────────────
+//
+// The official XOA appliance image is distributed as a gzip-compressed XVA
+// over HTTPS. XAPI's VM.import speaks only HTTP and expects an uncompressed
+// stream, so we route through xoa-proxy.py running on Dom0.
+//
+// XOA_SOURCE_URL: update this to the current Vates download URL.
+//   Format:  https://<host>/path/to/xoa-<version>.xva.gz
+//   Obtain the signed URL from https://vates.tech/deploy/ if required.
+//
+// XOA_PROXY_PORT: must match the PORT constant in xoa-proxy.py (default 9001).
+//   The proxy listens on 127.0.0.1 — reachable by XAPI on the same Dom0 host.
+//
+// VM.import receives: http://127.0.0.1:9001/image.xva?src=<encoded-source-url>
+// xoa-proxy.py fetches the src URL via HTTPS, gunzips on-the-fly, streams back.
+const XOA_SOURCE_URL = 'https://xoa.io/xoa-lts.xva.gz'
+const XOA_PROXY_PORT = 9001
+
+/** Builds the local proxy URL that VM.import will pull from. */
+function buildProxyUrl(sourceUrl: string): string {
+  return `http://127.0.0.1:${XOA_PROXY_PORT}/image.xva?src=${encodeURIComponent(sourceUrl)}`
+}
+
 const { t } = useI18n()
 const router = useRouter()
 
@@ -347,9 +370,14 @@ async function deploy() {
   try {
     status.value = t('deploy-xoa-status:importing')
 
+    // xoa-proxy.py (running on Dom0) fetches XOA_SOURCE_URL via HTTPS,
+    // decompresses the .xva.gz on-the-fly, and serves the raw .xva over HTTP.
+    // XAPI's VM.import then consumes the plain HTTP stream directly.
+    const proxyUrl = buildProxyUrl(XOA_SOURCE_URL)
+
     vmRef.value = (
       (await xapi.call('VM.import', [
-        'http://192.168.0.1:3000/image.xva',
+        proxyUrl,
         selectedSr.value.$ref,
         false, // full_restore
         false, // force
