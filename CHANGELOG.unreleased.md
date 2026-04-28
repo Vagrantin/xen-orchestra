@@ -13,6 +13,7 @@
 
 - [VM] Add possibility to remove a snapshot on snapshot tab (PR [#9749](https://github.com/vatesfr/xen-orchestra/pull/9749))
 - [Pool/Hosts] Management IP is now always shown first and the IP column is renamed to "Management IP" (PR [#9747](https://github.com/vatesfr/xen-orchestra/pull/9747))
+- [REST API] ACL V2 integration (PR [#9774](https://github.com/vatesfr/xen-orchestra/pull/9774))
 
 ### Bug fixes
 
@@ -37,8 +38,11 @@
 
 <!--packages-start-->
 
+- @vates/types minor
+- @xen-orchestra/acl major
+- @xen-orchestra/rest-api minor
 - @xen-orchestra/web minor
-- xo-server patch
+- xo-server minor
 - xo-server-sdn-controller minor
 
 <!--packages-end-->
