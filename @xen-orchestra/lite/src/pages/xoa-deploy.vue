@@ -388,8 +388,8 @@ async function deploy() {
 
     const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
 
-    if (vifRef.length > 0) {
-      await xapi.call('VIF.destroy', [vifRef])
+    if (vifRef !== undefined) {
+    	await xapi.call('VIF.destroy', [vifRef])
     }
 
     if (!deploying.value) {
