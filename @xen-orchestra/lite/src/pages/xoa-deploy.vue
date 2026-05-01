@@ -61,6 +61,11 @@
       <form @submit.prevent="deploy">
         <FormSection :label="t('configuration')">
           <div class="row">
+            <VtsInputWrapper :label="t('xoa-image-url')">
+              <FormInput v-model="xoaImageUrl" :placeholder="XOA_DEFAULT_IMAGE_URL" />
+            </VtsInputWrapper>
+          </div>
+          <div class="row">
             <VtsInputWrapper :label="t('storage')" :message="t('n-gb-required', { n: REQUIRED_GB })">
               <VtsSelect :id="srSelectId" accent="brand" />
             </VtsInputWrapper>
@@ -69,10 +74,7 @@
             <VtsInputWrapper :label="t('network')">
               <VtsSelect :id="networkSelectId" accent="brand" />
             </VtsInputWrapper>
-            <VtsInputWrapper
-              :label="t('deploy-xoa-custom-ntp-servers')"
-              learn-more-url="https://docs.xen-orchestra.com/xoa#setting-a-custom-ntp-server"
-            >
+            <VtsInputWrapper :label="t('deploy-xoa-custom-ntp-servers')" learn-more-url="https://docs.xen-orchestra.com/xoa#setting-a-custom-ntp-server">
               <FormInput v-model="ntp" placeholder="xxx.xxx.xxx.xxx" />
             </VtsInputWrapper>
           </div>
@@ -124,7 +126,7 @@
               :label="t('admin-login')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput value="admin@admin.net" placeholder="admin@admin.net" disabled />
+              <FormInput v-model="xoaUser" placeholder="admin@admin.net" disabled />
             </VtsInputWrapper>
           </div>
           <div class="row">
@@ -132,13 +134,13 @@
               :label="t('admin-password')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput value="admin" placeholder="admin" disabled />
+              <FormInput v-model="xoaPwd" placeholder="admin" disabled />
             </VtsInputWrapper>
             <VtsInputWrapper
               :label="t('admin-password-confirm')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput value="admin" placeholder="admin" disabled />
+              <FormInput v-model="xoaPwdConfirm" placeholder="admin" disabled />
             </VtsInputWrapper>
           </div>
         </FormSection>
@@ -154,10 +156,10 @@
           </div>
           <div class="row">
             <VtsInputWrapper :label="t('ssh-password')">
-              <FormInput value="xopass" placeholder="xopass" disabled />
+              <FormInput v-model="sshPwd" placeholder="xopass" disabled />
             </VtsInputWrapper>
             <VtsInputWrapper :label="t('ssh-password-confirm')">
-              <FormInput value="xopass" placeholder="xopass" disabled />
+              <FormInput v-model="sshPwdConfirm" placeholder="xopass" disabled />
             </VtsInputWrapper>
           </div>
         </FormSection>
@@ -204,22 +206,12 @@ import { useRouter } from 'vue-router'
 const REQUIRED_GB = 20
 
 // ── XOA image source & proxy ──────────────────────────────────────────────────
-//
-// The official XOA appliance image is distributed as a gzip-compressed XVA
-// over HTTPS. XAPI's VM.import speaks only HTTP and expects an uncompressed
-// stream, so we route through xoa-proxy.py running on Dom0.
-//
-// XOA_SOURCE_URL: update this to the current Vates download URL.
-//   Format:  https://<host>/path/to/xoa-<version>.xva.gz
-//   Obtain the signed URL from https://vates.tech/deploy/ if required.
-//
-// XOA_PROXY_PORT: must match the PORT constant in xoa-proxy.py (default 9001).
-//   The proxy listens on 127.0.0.1 — reachable by XAPI on the same Dom0 host.
-//
-// VM.import receives: http://127.0.0.1:9001/image.xva?src=<encoded-source-url>
-// xoa-proxy.py fetches the src URL via HTTPS, gunzips on-the-fly, streams back.
-const XOA_SOURCE_URL = 'https://xoa.io/xoa-lts.xva.gz'
+// XOA_PROXY_PORT must match PORT in xoa-proxy.py (default 9001).
+// xoaImageUrl is user-editable in the Configuration section of the form.
+const XOA_DEFAULT_IMAGE_URL = 'https://xo-image.yawn.fi/downloads/image.xva.gz'
 const XOA_PROXY_PORT = 9001
+
+const xoaImageUrl = ref(XOA_DEFAULT_IMAGE_URL)
 
 /** Builds the local proxy URL that VM.import will pull from. */
 function buildProxyUrl(sourceUrl: string): string {
@@ -318,12 +310,14 @@ const ip = ref('')
 const netmask = ref('')
 const dns = ref('')
 const gateway = ref('')
-const xoaUser = ref('')
-const xoaPwd = ref('')
-const xoaPwdConfirm = ref('')
+// Baked-in defaults — fields are disabled in the UI but bound via v-model
+// so deploy() guards read the correct values without any user input required.
+const xoaUser = ref('admin@admin.net')
+const xoaPwd = ref('admin')
+const xoaPwdConfirm = ref('admin')
 const enableSshAccount = ref(true)
-const sshPwd = ref('')
-const sshPwdConfirm = ref('')
+const sshPwd = ref('xopass')
+const sshPwdConfirm = ref('xopass')
 
 async function deploy() {
   if (selectedSr.value === undefined || selectedNetwork.value === undefined) {
@@ -343,7 +337,7 @@ async function deploy() {
 
   if (xoaUser.value === '' || xoaPwd.value === '') {
     // Should not happen
-    console.error('Missing XOA credentials')
+    console.error('Missing XOA user information')
     return
   }
 
@@ -355,7 +349,7 @@ async function deploy() {
 
   if (enableSshAccount.value && sshPwd.value === '') {
     // Should not happen
-    console.error('Missing XOA credentials')
+    console.error('Missing XOA ssh credentials')
     return
   }
 
@@ -373,7 +367,7 @@ async function deploy() {
     // xoa-proxy.py (running on Dom0) fetches XOA_SOURCE_URL via HTTPS,
     // decompresses the .xva.gz on-the-fly, and serves the raw .xva over HTTP.
     // XAPI's VM.import then consumes the plain HTTP stream directly.
-    const proxyUrl = buildProxyUrl(XOA_SOURCE_URL)
+    const proxyUrl = buildProxyUrl(xoaImageUrl.value)
 
     vmRef.value = (
       (await xapi.call('VM.import', [

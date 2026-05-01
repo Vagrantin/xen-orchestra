@@ -1110,6 +1110,7 @@
   "xoa-deploy-failed!": "Sorry, deployment failed!",
   "xoa-deploy-retry": "Try again to deploy XOA",
   "xoa-deploy-successful!": "XOA deployment successful!",
+  "xoa-image-url": "XOA Image URL",
   "xoa-ip": "XOA IP address",
   "xoa-password-confirm-different": "XOA password confirmation is different",
   "xoa-ssh-account": "XOA SSH account",
