@@ -1,28 +1,5 @@
 #!/usr/bin/env python3
-"""
-xoa-proxy.py — XOA Deploy Proxy for XCP-ng Dom0
-════════════════════════════════════════════════════════════════════════════════
-Bridges the two hard limitations of XAPI's VM.import:
-  1. VM.import only speaks HTTP, not HTTPS
-  2. VM.import cannot consume gzip-compressed streams
-
-This proxy:
-  • Listens on HTTP at 127.0.0.1:<PORT>
-  • Accepts: GET /image.xva?src=<https-url-of-the-xva.gz>
-  • Fetches the remote .xva.gz via HTTPS (cert verification on by default;
-    pass --no-verify-ssl or set XOA_PROXY_NO_VERIFY_SSL=1 for self-signed certs)
-  • Decompresses with gzip on-the-fly (zero buffering of the full file)
-  • Streams the raw .xva bytes back over HTTP to XAPI
-
-Deployment:
-  cp  xoa-proxy.py          /opt/xensource/www/
-  cp  xoa-proxy.service     /etc/systemd/system/
-  systemctl daemon-reload
-  systemctl enable --now xoa-proxy
-
-Requirements: Python 3.6+ (stdlib only — no pip installs needed)
-════════════════════════════════════════════════════════════════════════════════
-"""
+# -*- coding: utf-8 -*-
 
 import argparse
 import gzip
@@ -30,8 +7,10 @@ import http.server
 import logging
 import os
 import signal
+import socketserver
 import ssl
 import sys
+import threading
 import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlparse
@@ -43,6 +22,24 @@ CHUNK_SIZE = 64 * 1024  # 64 KiB — large enough to keep the pipeline fed, smal
 
 # Populated by main() after CLI/env parsing; read by XoaProxyHandler._stream_xva().
 SSL_VERIFY: bool = True
+
+# A non-blocking lock that ensures only one XVA stream is active at a time.
+# A second concurrent request receives HTTP 409 immediately.
+_import_lock = threading.Lock()
+
+
+# ── Server ─────────────────────────────────────────────────────────────────────
+
+class XoaProxyServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    """Threaded HTTP server — each request runs in its own daemon thread.
+
+    daemon_threads=True means worker threads are killed automatically when the
+    main thread exits, so Ctrl+C / SIGTERM shuts down instantly regardless of
+    whether a multi-minute stream is in progress.
+    Concurrent imports are intentionally blocked via _import_lock.
+    """
+    daemon_threads = True
+    allow_reuse_address = True
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,10 +87,22 @@ class XoaProxyHandler(http.server.BaseHTTPRequestHandler):
         """
         Fetch src_url (HTTPS .xva.gz), decompress, stream as HTTP to XAPI.
 
-        HTTP/1.0 semantics: no Content-Length (unknown after decompression),
-        connection closed when done. libcurl (used internally by VM.import)
-        reads until EOF — this is spec-compliant and universally supported.
+        Only one import may run at a time — a second concurrent request receives
+        HTTP 409 Conflict immediately. HTTP/1.0 semantics: no Content-Length
+        (unknown after decompression), connection closed when done. libcurl
+        (used internally by VM.import) reads until EOF — spec-compliant.
         """
+        if not _import_lock.acquire(blocking=False):
+            self._error(409, "An import is already in progress. Only one concurrent import is allowed.")
+            return
+
+        try:
+            self._do_stream(src_url)
+        finally:
+            _import_lock.release()
+
+    def _do_stream(self, src_url: str) -> None:
+        """Inner stream logic — called only when the import lock is held."""
         log.info("Starting stream  src=%s", src_url)
 
         # Build the SSL context according to the --no-verify-ssl flag.
@@ -120,44 +129,71 @@ class XoaProxyHandler(http.server.BaseHTTPRequestHandler):
         try:
             with urllib.request.urlopen(req, context=ssl_ctx) as upstream:
                 log.info(
-                    "Upstream connected  status=%d content-type=%s",
+                    "Upstream connected  status=%d content-length=%s content-type=%s",
                     upstream.status,
+                    upstream.headers.get("Content-Length", "unknown"),  # log expected size
                     upstream.headers.get("Content-Type", "unknown"),
                 )
 
-                # Send response headers before we start reading/decompressing.
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Connection", "close")
-                # No Content-Length — we don't know the decompressed size.
                 self.end_headers()
 
                 bytes_sent = 0
-                with gzip.GzipFile(fileobj=upstream) as gz:
-                    while True:
-                        chunk = gz.read(CHUNK_SIZE)
-                        if not chunk:
-                            break
-                        self.wfile.write(chunk)
-                        bytes_sent += len(chunk)
+                stream_complete = False  # ← track clean completion
 
-                log.info("Stream complete  bytes_sent=%d (%.1f MiB)", bytes_sent, bytes_sent / 1024 ** 2)
+                try:
+                    with gzip.GzipFile(fileobj=upstream) as gz:
+                        while True:
+                            chunk = gz.read(CHUNK_SIZE)
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            bytes_sent += len(chunk)
+                    # If we exit the `with gz` block without exception,
+                    # the gzip footer was validated — stream is complete.
+                    stream_complete = True
+
+                except EOFError as exc:
+                    # gzip stream ended before the footer — upstream truncated
+                    log.error(
+                        "Upstream truncated mid-stream after %.1f MiB: %s",
+                        bytes_sent / 1024 ** 2,
+                        exc,
+                    )
+                    # Connection is already open to XAPI — close it abruptly
+                    # so XAPI gets a connection reset rather than a clean EOF,
+                    # making the failure mode more explicit on the XAPI side.
+                    return
+
+                except OSError as exc:
+                    log.error("Gzip decompression error after %.1f MiB: %s", bytes_sent / 1024 ** 2, exc)
+                    return
+
+                finally:
+                    if stream_complete:
+                        log.info(
+                            "Stream complete  bytes_sent=%d (%.1f MiB)",
+                            bytes_sent,
+                            bytes_sent / 1024 ** 2,
+                        )
+                    else:
+                        log.error(
+                            "Stream INCOMPLETE  bytes_sent=%d (%.1f MiB) — "
+                            "XAPI will receive premature EOF and fail with INTERNAL_ERROR",
+                            bytes_sent,
+                            bytes_sent / 1024 ** 2,
+                        )
 
         except urllib.error.URLError as exc:
-            # Headers not sent yet — we can still return a proper HTTP error.
             log.error("Upstream fetch failed: %s", exc)
             self._error(502, f"Failed to fetch upstream image: {exc}")
 
-        except (OSError, EOFError) as exc:
-            # gzip decompression failure (OSError covers BadGzipFile on Py < 3.8)
-            # Headers likely already sent — log and let connection close abruptly.
-            log.error("Decompression error (headers may already be sent): %s", exc)
-
         except BrokenPipeError:
-            # XAPI cancelled the request or the import was aborted from the UI.
             log.warning("Client (XAPI) closed connection before stream completed")
 
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("Unexpected error during stream: %s", exc)
 
     # ── Helpers ────────────────────────────────────────────────────────────────
@@ -222,11 +258,12 @@ def main() -> None:
     args = _parse_args()
     SSL_VERIFY = not args.no_verify_ssl
 
-    server = http.server.HTTPServer((args.bind, args.port), XoaProxyHandler)
+    server = XoaProxyServer((args.bind, args.port), XoaProxyHandler)
 
     def _on_signal(sig: int, _frame) -> None:
-        log.info("Received signal %d, shutting down", sig)
-        server.shutdown()
+        log.info("Received signal %d, shutting down immediately", sig)
+        # sys.exit() kills the main thread instantly; daemon worker threads
+        # (including any in-progress stream) are reaped by the OS automatically.
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _on_signal)

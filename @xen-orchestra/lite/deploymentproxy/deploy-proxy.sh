@@ -34,36 +34,37 @@ echo ""
 
 # ── Step 1: Install the proxy script on Dom0 ──────────────────────────────────
 echo "── [1/3] Copying xoa-proxy.py to $HOST:$REMOTE_WWW/"
-rsync -av --checksum "$PROXY_SCRIPT" "$HOST:$REMOTE_WWW/"
+scp "$PROXY_SCRIPT" "$HOST:$REMOTE_WWW/"
 
 # ── Step 2: Install and enable the systemd service ────────────────────────────
 echo "── [2/3] Installing systemd unit"
-rsync -av --checksum "$SERVICE_FILE" "$HOST:$REMOTE_SERVICE"
+scp "$SERVICE_FILE" "$HOST:$REMOTE_SERVICE"
 
-ssh "$HOST" bash <<'REMOTE'
-  set -e
-  systemctl daemon-reload
-  systemctl enable xoa-proxy
-  # Restart if already running, start if not
-  if systemctl is-active --quiet xoa-proxy; then
-    systemctl restart xoa-proxy
-    echo "  ✔ xoa-proxy restarted"
-  else
-    systemctl start xoa-proxy
-    echo "  ✔ xoa-proxy started"
-  fi
-  # Verify it came up
-  sleep 1
-  systemctl is-active xoa-proxy && echo "  ✔ xoa-proxy is running" || echo "  ✘ xoa-proxy failed to start — check: journalctl -u xoa-proxy"
-REMOTE
+#ssh "$HOST" bash <<'REMOTE'
+#  set -e
+#  systemctl daemon-reload
+#  systemctl enable xoa-proxy
+#  # Restart if already running, start if not
+#  if systemctl is-active --quiet xoa-proxy; then
+#    systemctl restart xoa-proxy
+#    echo "  ✔ xoa-proxy restarted"
+#  else
+#    systemctl start xoa-proxy
+#    echo "  ✔ xoa-proxy started"
+#  fi
+#  # Verify it came up
+#  sleep 1
+#  systemctl is-active xoa-proxy && echo "  ✔ xoa-proxy is running" || echo "  ✘ xoa-proxy failed to start — check: journalctl -u xoa-proxy"
+#REMOTE
 
 # ── Step 3 (optional): Build and deploy XO-Lite ───────────────────────────────
 if [[ "$DEPLOY_APP" == "true" ]]; then
   echo "── [3/3] Building XO-Lite"
-  (cd "$XOLITE_DIR" && npx yarn build)
+  cd "$XOLITE_DIR" && npx yarn build
 
   echo "      Deploying dist/ to $HOST:$REMOTE_WWW/"
-  rsync -av --delete "$XOLITE_DIR/dist/" "$HOST:$REMOTE_WWW/"
+  cd "$XOLITE_DIR/dist"
+  scp -r * "$HOST:$REMOTE_WWW/"
   echo "  ✔ XO-Lite deployed"
 else
   echo "── [3/3] Skipping XO-Lite build (pass --app to include)"
