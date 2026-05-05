@@ -210,12 +210,13 @@ const REQUIRED_GB = 20
 // xoaImageUrl is user-editable in the Configuration section of the form.
 const XOA_DEFAULT_IMAGE_URL = 'https://xo-image.yawn.fi/downloads/image.xva.gz'
 const XOA_PROXY_PORT = 9001
+const XOA_PROXY_BIND_ADDRESS = '127.0.0.1' 
 
 const xoaImageUrl = ref(XOA_DEFAULT_IMAGE_URL)
 
 /** Builds the local proxy URL that VM.import will pull from. */
 function buildProxyUrl(sourceUrl: string): string {
-  return `http://127.0.0.1:${XOA_PROXY_PORT}/image.xva?src=${encodeURIComponent(sourceUrl)}`
+  return `http://${XOA_PROXY_BIND_ADDRESS}:${XOA_PROXY_PORT}/image.xva?src=${encodeURIComponent(sourceUrl)}`
 }
 
 const { t } = useI18n()
