@@ -66,6 +66,11 @@
             </VtsInputWrapper>
           </div>
           <div class="row">
+            <VtsInputWrapper>
+              <UiToggle v-model="verifySsl">{{ t('verify-ssl-certificate') }}</UiToggle>
+            </VtsInputWrapper>
+          </div>
+          <div class="row">
             <VtsInputWrapper :label="t('storage')" :message="t('n-gb-required', { n: REQUIRED_GB })">
               <VtsSelect :id="srSelectId" accent="brand" />
             </VtsInputWrapper>
@@ -214,9 +219,21 @@ const XOA_PROXY_BIND_ADDRESS = '127.0.0.1'
 
 const xoaImageUrl = ref(XOA_DEFAULT_IMAGE_URL)
 
+/**
+ * When true (default), xoa-proxy verifies the upstream TLS certificate.
+ * Uncheck only for self-signed / private-CA image servers.
+ * The flag is forwarded as ?verify_ssl=false in the proxy URL so the proxy
+ * can select its non-verifying reqwest client without a restart.
+ */
+const verifySsl = ref(true)
+
 /** Builds the local proxy URL that VM.import will pull from. */
-function buildProxyUrl(sourceUrl: string): string {
-  return `http://${XOA_PROXY_BIND_ADDRESS}:${XOA_PROXY_PORT}/image.xva?src=${encodeURIComponent(sourceUrl)}`
+function buildProxyUrl(sourceUrl: string, sslVerify: boolean): string {
+  const params = new URLSearchParams({ src: sourceUrl })
+  if (!sslVerify) {
+    params.set('verify_ssl', 'false')
+  }
+  return `http://${XOA_PROXY_BIND_ADDRESS}:${XOA_PROXY_PORT}/image.xva?${params.toString()}`
 }
 
 const { t } = useI18n()
@@ -368,7 +385,7 @@ async function deploy() {
     // xoa-proxy.py (running on Dom0) fetches XOA_SOURCE_URL via HTTPS,
     // decompresses the .xva.gz on-the-fly, and serves the raw .xva over HTTP.
     // XAPI's VM.import then consumes the plain HTTP stream directly.
-    const proxyUrl = buildProxyUrl(xoaImageUrl.value)
+    const proxyUrl = buildProxyUrl(xoaImageUrl.value, verifySsl.value)
 
     vmRef.value = (
       (await xapi.call('VM.import', [
