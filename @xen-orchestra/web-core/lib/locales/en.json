@@ -902,6 +902,7 @@
   "vdi-throughput": "VDI throughput",
   "vdis": "VDIs",
   "version": "Version",
+  "verify-ssl-certificate": "Verify if ssl certificate is valid",
   "vga": "VGA",
   "video-ram": "Video RAM",
   "vif": "VIF",
