@@ -211,23 +211,32 @@ import { useRouter } from 'vue-router'
 const REQUIRED_GB = 20
 
 // ── XOA image source & proxy ──────────────────────────────────────────────────
-// XOA_PROXY_PORT must match PORT in xoa-proxy.py (default 9001).
+// XOA_PROXY_PORT must match the port xoa-proxy is listening on (default 9001).
 // xoaImageUrl is user-editable in the Configuration section of the form.
 const XOA_DEFAULT_IMAGE_URL = 'https://xo-image.yawn.fi/downloads/image.xva.gz'
 const XOA_PROXY_PORT = 9001
-const XOA_PROXY_BIND_ADDRESS = '127.0.0.1' 
+const XOA_PROXY_BIND_ADDRESS = '127.0.0.1'
 
 const xoaImageUrl = ref(XOA_DEFAULT_IMAGE_URL)
 
 /**
  * When true (default), xoa-proxy verifies the upstream TLS certificate.
  * Uncheck only for self-signed / private-CA image servers.
- * The flag is forwarded as ?verify_ssl=false in the proxy URL so the proxy
- * can select its non-verifying reqwest client without a restart.
  */
 const verifySsl = ref(true)
 
-/** Builds the local proxy URL that VM.import will pull from. */
+/**
+ * Builds the local proxy URL that VM.import will pull from.
+ *
+ * The proxy auto-detects the image format (gzip vs raw XVA) from the
+ * source URL extension, falling back to a HEAD probe when the extension
+ * is ambiguous. It handles all four combinations transparently:
+ *
+ *   http  + .xva     → relay HTTP → HTTP, stream raw
+ *   http  + .xva.gz  → relay HTTP → HTTP, decompress gzip
+ *   https + .xva     → relay HTTPS → HTTP, stream raw
+ *   https + .xva.gz  → relay HTTPS → HTTP, decompress gzip
+ */
 function buildProxyUrl(sourceUrl: string, sslVerify: boolean): string {
   const params = new URLSearchParams({ src: sourceUrl })
   if (!sslVerify) {
@@ -382,14 +391,13 @@ async function deploy() {
   try {
     status.value = t('deploy-xoa-status:importing')
 
-    // xoa-proxy.py (running on Dom0) fetches XOA_SOURCE_URL via HTTPS,
-    // decompresses the .xva.gz on-the-fly, and serves the raw .xva over HTTP.
-    // XAPI's VM.import then consumes the plain HTTP stream directly.
-    const proxyUrl = buildProxyUrl(xoaImageUrl.value, verifySsl.value)
+    // The proxy auto-detects whether the image is gzip-compressed or plain XVA
+    // and handles both HTTP and HTTPS sources transparently.
+    const importUrl = buildProxyUrl(xoaImageUrl.value, verifySsl.value)
 
     vmRef.value = (
       (await xapi.call('VM.import', [
-        proxyUrl,
+        importUrl,
         selectedSr.value.$ref,
         false, // full_restore
         false, // force
