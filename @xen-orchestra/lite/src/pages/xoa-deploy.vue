@@ -60,9 +60,28 @@
     <UiCard>
       <form @submit.prevent="deploy">
         <FormSection :label="t('configuration')">
+          <!-- Image source selector -->
           <div class="row">
             <VtsInputWrapper :label="t('xoa-image-url')">
-              <FormInput v-model="xoaImageUrl" :placeholder="XOA_DEFAULT_IMAGE_URL" />
+              <div class="image-source-row">
+                <select v-model="imageSource" class="image-source-select">
+                  <option value="vates">{{ t('vates-image') }}</option>
+                  <option value="ronivay">{{ t('ronivay-image') }}</option>
+                  <option value="custom">{{ t('custom-url') }}</option>
+                </select>
+                <FormInput
+                  v-if="imageSource === 'custom'"
+                  v-model="xoaImageUrl"
+                  placeholder="https://example.com/image.xva.gz"
+                  class="custom-url-input"
+                />
+              </div>
+            </VtsInputWrapper>
+          </div>
+          <!-- SSL toggle: only relevant for proxy paths (ronivay / custom) -->
+          <div v-if="imageSource !== 'vates'" class="row">
+            <VtsInputWrapper>
+              <UiToggle v-model="verifySsl">{{ t('verify-ssl-certificate') }}</UiToggle>
             </VtsInputWrapper>
           </div>
           <div class="row">
@@ -126,7 +145,12 @@
               :label="t('admin-login')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput v-model="xoaUser" placeholder="admin@admin.net" disabled />
+              <FormInput
+                v-model="xoaUser"
+                :disabled="!isEditable"
+                :required="isEditable"
+                :placeholder="isEditable ? 'email@example.com' : 'admin@admin.net'"
+              />
             </VtsInputWrapper>
           </div>
           <div class="row">
@@ -134,20 +158,32 @@
               :label="t('admin-password')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput v-model="xoaPwd" placeholder="admin" disabled />
+              <FormInput
+                v-model="xoaPwd"
+                :type="isEditable ? 'password' : 'text'"
+                :disabled="!isEditable"
+                :required="isEditable"
+                :placeholder="isEditable ? t('password') : 'admin'"
+              />
             </VtsInputWrapper>
             <VtsInputWrapper
               :label="t('admin-password-confirm')"
               learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
             >
-              <FormInput v-model="xoaPwdConfirm" placeholder="admin" disabled />
+              <FormInput
+                v-model="xoaPwdConfirm"
+                :type="isEditable ? 'password' : 'text'"
+                :disabled="!isEditable"
+                :required="isEditable"
+                :placeholder="isEditable ? t('password') : 'admin'"
+              />
             </VtsInputWrapper>
           </div>
         </FormSection>
 
         <FormSection :label="t('xoa-ssh-account')">
           <div class="row">
-            <UiToggle v-model="enableSshAccount">{{ t('ssh-account') }}</UiToggle>
+            <UiToggle v-model="enableSshAccount" :disabled="!isEditable">{{ t('ssh-account') }}</UiToggle>
           </div>
           <div class="row">
             <VtsInputWrapper :label="t('ssh-login')">
@@ -156,10 +192,22 @@
           </div>
           <div class="row">
             <VtsInputWrapper :label="t('ssh-password')">
-              <FormInput v-model="sshPwd" placeholder="xopass" disabled />
+              <FormInput
+                v-model="sshPwd"
+                :type="isEditable ? 'password' : 'text'"
+                :placeholder="isEditable ? t('password') : 'xopass'"
+                :disabled="!isEditable || !enableSshAccount"
+                :required="isEditable && enableSshAccount"
+              />
             </VtsInputWrapper>
             <VtsInputWrapper :label="t('ssh-password-confirm')">
-              <FormInput v-model="sshPwdConfirm" placeholder="xopass" disabled />
+              <FormInput
+                v-model="sshPwdConfirm"
+                :type="isEditable ? 'password' : 'text'"
+                :placeholder="isEditable ? t('password') : 'xopass'"
+                :disabled="!isEditable || !enableSshAccount"
+                :required="isEditable && enableSshAccount"
+              />
             </VtsInputWrapper>
           </div>
         </FormSection>
@@ -199,23 +247,57 @@ import { useFormSelect } from '@core/packages/form-select'
 import { useModal } from '@core/packages/modal/use-modal.ts'
 import { useUiStore } from '@core/stores/ui.store'
 import { logicNot } from '@vueuse/math'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 const REQUIRED_GB = 20
 
-// ── XOA image source & proxy ──────────────────────────────────────────────────
-// XOA_PROXY_PORT must match PORT in xoa-proxy.py (default 9001).
-// xoaImageUrl is user-editable in the Configuration section of the form.
-const XOA_DEFAULT_IMAGE_URL = 'https://xo-image.yawn.fi/downloads/image.xva.gz'
+// ── XOA image sources ─────────────────────────────────────────────────────────
+// Option 1 – Vates official: VM.import called directly, no proxy.
+// Option 2 – Ronivay community: routed through xoa-proxy (gzip + HTTP/HTTPS).
+// Option 3 – Custom URL: same proxy path as ronivay.
+const XOA_VATES_IMAGE_URL = 'http://xoa.io/xva'
+const XOA_RONIVAY_IMAGE_URL = 'https://xo-image.yawn.fi/downloads/image.xva.gz'
+
+type ImageSource = 'vates' | 'ronivay' | 'custom'
+
+/** Which image source is currently selected. */
+const imageSource = ref<ImageSource>('ronivay')
+
+/**
+ * User-entered URL, only used when imageSource === 'custom'.
+ * The proxy auto-detects gzip vs raw XVA from the URL extension.
+ */
+const xoaImageUrl = ref('')
+
+// ── Proxy config ──────────────────────────────────────────────────────────────
+// XOA_PROXY_PORT must match the port xoa-proxy is listening on (default 9001).
 const XOA_PROXY_PORT = 9001
+const XOA_PROXY_BIND_ADDRESS = '127.0.0.1'
 
-const xoaImageUrl = ref(XOA_DEFAULT_IMAGE_URL)
+/**
+ * When true (default), xoa-proxy verifies the upstream TLS certificate.
+ * Uncheck only for self-signed / private-CA image servers.
+ * Not applicable for the Vates path (no proxy used).
+ */
+const verifySsl = ref(true)
 
-/** Builds the local proxy URL that VM.import will pull from. */
-function buildProxyUrl(sourceUrl: string): string {
-  return `http://127.0.0.1:${XOA_PROXY_PORT}/image.xva?src=${encodeURIComponent(sourceUrl)}`
+/**
+ * Builds the local proxy URL that VM.import will pull from.
+ *
+ * Handles all four combinations transparently:
+ *   http  + .xva     → relay HTTP → HTTP, stream raw
+ *   http  + .xva.gz  → relay HTTP → HTTP, decompress gzip
+ *   https + .xva     → relay HTTPS → HTTP, stream raw
+ *   https + .xva.gz  → relay HTTPS → HTTP, decompress gzip
+ */
+function buildProxyUrl(sourceUrl: string, sslVerify: boolean): string {
+  const params = new URLSearchParams({ src: sourceUrl })
+  if (!sslVerify) {
+    params.set('verify_ssl', 'false')
+  }
+  return `http://${XOA_PROXY_BIND_ADDRESS}:${XOA_PROXY_PORT}/image.xva?${params.toString()}`
 }
 
 const { t } = useI18n()
@@ -310,14 +392,44 @@ const ip = ref('')
 const netmask = ref('')
 const dns = ref('')
 const gateway = ref('')
-// Baked-in defaults — fields are disabled in the UI but bound via v-model
-// so deploy() guards read the correct values without any user input required.
+
+// Credential refs — values depend on imageSource (see watch below).
+// Start with CE defaults because default imageSource is 'ronivay'.
 const xoaUser = ref('admin@admin.net')
 const xoaPwd = ref('admin')
 const xoaPwdConfirm = ref('admin')
 const enableSshAccount = ref(true)
 const sshPwd = ref('xopass')
 const sshPwdConfirm = ref('xopass')
+
+/**
+ * True when fields should be editable (Vates or Custom).
+ * Only the Ronivay option uses baked-in, pre-filled credentials.
+ */
+const isEditable = computed(() => imageSource.value !== 'ronivay')
+
+/**
+ * When switching to the Vates path, clear baked-in defaults so the user must
+ * fill in real credentials (upstream behaviour).
+ * When switching away, restore the pre-filled CE defaults.
+ */
+watch(imageSource, source => {
+  if (source === 'ronivay') {
+    xoaUser.value = 'admin@admin.net'
+    xoaPwd.value = 'admin'
+    xoaPwdConfirm.value = 'admin'
+    sshPwd.value = 'xopass'
+    sshPwdConfirm.value = 'xopass'
+    enableSshAccount.value = true
+  } else {
+    xoaUser.value = ''
+    xoaPwd.value = ''
+    xoaPwdConfirm.value = ''
+    sshPwd.value = ''
+    sshPwdConfirm.value = ''
+    enableSshAccount.value = true
+  }
+})
 
 async function deploy() {
   if (selectedSr.value === undefined || selectedNetwork.value === undefined) {
@@ -364,14 +476,20 @@ async function deploy() {
   try {
     status.value = t('deploy-xoa-status:importing')
 
-    // xoa-proxy.py (running on Dom0) fetches XOA_SOURCE_URL via HTTPS,
-    // decompresses the .xva.gz on-the-fly, and serves the raw .xva over HTTP.
-    // XAPI's VM.import then consumes the plain HTTP stream directly.
-    const proxyUrl = buildProxyUrl(xoaImageUrl.value)
+    // Option 1 (Vates): call VM.import directly — upstream behaviour, no proxy.
+    // Options 2 & 3 (Ronivay / Custom): route through xoa-proxy which handles
+    // gzip decompression and both HTTP/HTTPS sources (including self-signed TLS).
+    const importUrl =
+      imageSource.value === 'vates'
+        ? XOA_VATES_IMAGE_URL
+        : buildProxyUrl(
+            imageSource.value === 'ronivay' ? XOA_RONIVAY_IMAGE_URL : xoaImageUrl.value,
+            verifySsl.value
+          )
 
     vmRef.value = (
       (await xapi.call('VM.import', [
-        proxyUrl,
+        importUrl,
         selectedSr.value.$ref,
         false, // full_restore
         false, // force
@@ -383,7 +501,7 @@ async function deploy() {
     const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
 
     if (vifRef !== undefined) {
-    	await xapi.call('VIF.destroy', [vifRef])
+      await xapi.call('VIF.destroy', [vifRef])
     }
 
     if (!deploying.value) {
@@ -519,6 +637,29 @@ async function cancel() {
     flex: 1;
     max-width: calc(50% - 4rem);
   }
+}
+
+.image-source-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  width: 100%;
+}
+
+.image-source-select {
+  height: 3.6rem;
+  padding: 0 1rem;
+  border: 1px solid var(--color-neutral-border-strong);
+  border-radius: 0.4rem;
+  background: var(--color-neutral-background-primary);
+  color: var(--color-neutral-txt-primary);
+  font-size: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.custom-url-input {
+  flex: 1;
 }
 
 .input-container * {

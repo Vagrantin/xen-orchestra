@@ -42,3 +42,6 @@ coverage/
 
 # https://node-tap.org/dot-tap-folder/
 .tap/
+
+# xcp-ce
+@xen-orchestra/lite/xoa-proxy/xoa-proxy
