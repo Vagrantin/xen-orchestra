@@ -29,15 +29,18 @@ import type {
   XoVm,
 } from '@vates/types'
 
+import { acl } from '../middlewares/acl.middleware.mjs'
 import { escapeUnsafeComplexMatcher } from '../helpers/utils.helper.mjs'
 import { provide } from 'inversify-binding-decorators'
 import { RestApi } from '../rest-api/rest-api.mjs'
 import {
+  asynchronousActionResp,
   badRequestResp,
   createdResp,
   internalServerErrorResp,
   invalidParameters as invalidParametersResp,
   noContentResp,
+  forbiddenOperationResp,
   notFoundResp,
   unauthorizedResp,
   type Unbrand,
@@ -49,15 +52,17 @@ import { partialVifs, vif, vifId, vifIds } from '../open-api/oa-examples/vif.oa-
 import { genericAlarmsExample } from '../open-api/oa-examples/alarm.oa-example.mjs'
 import { AlarmService } from '../alarms/alarm.service.mjs'
 import { messageIds, partialMessages } from '../open-api/oa-examples/message.oa-example.mjs'
-import { taskIds, partialTasks } from '../open-api/oa-examples/task.oa-example.mjs'
+import { taskIds, partialTasks, taskLocation } from '../open-api/oa-examples/task.oa-example.mjs'
+import type { CreateActionReturnType } from '../abstract-classes/base-controller.mjs'
 
 type UnbrandedXoVif = Unbrand<XoVif>
-
 type CreateVifParams = Parameters<Xapi['VIF_create']>
-type CreateVifBody = Omit<CreateVifParams[0], 'network' | 'VM'> &
+type CreateVifBody = Omit<CreateVifParams[0], 'network' | 'VM' | 'other_config' | 'qos_algorithm_params'> &
   CreateVifParams[1] & {
     networkId: string
     vmId: string
+    other_config?: { [key: string]: string } //  "ethtool-tx" : "false"
+    qos_algorithm_params?: { [key: string]: string } // "kbps": "1000"
   }
 
 @Route('vifs')
@@ -74,6 +79,9 @@ export class VifController extends XapiXoController<XoVif> {
   }
 
   /**
+   * Returns all VIFs that match the following privilege:
+   * - resource: vif, action: read
+   *
    * @example fields "attached,id,device"
    * @example filter "attached?"
    * @example limit 42
@@ -81,6 +89,7 @@ export class VifController extends XapiXoController<XoVif> {
   @Example(vifIds)
   @Example(partialVifs)
   @Get('')
+  @Security('*', ['acl'])
   getVifs(
     @Request() req: ExRequest,
     @Query() fields?: string,
@@ -89,20 +98,31 @@ export class VifController extends XapiXoController<XoVif> {
     @Query() filter?: string,
     @Query() limit?: number
   ): SendObjects<Partial<UnbrandedXoVif>> {
-    return this.sendObjects(Object.values(this.getObjects({ filter, limit })), req)
+    return this.sendObjects(Object.values(this.getObjects({ filter })), req, {
+      limit,
+      privilege: { action: 'read', resource: 'vif' },
+    })
   }
 
   /**
+   * Required privilege:
+   * - resource: vif, action: read
+   *
    * @example id "f028c5d4-578a-332c-394e-087aaca32dd3"
    */
   @Example(vif)
   @Get('{id}')
+  @Middlewares(acl({ resource: 'vif', action: 'read', objectId: 'params.id' }))
+  @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
   @Response(notFoundResp.status, notFoundResp.description)
   getVif(@Path() id: string): UnbrandedXoVif {
     return this.getObject(id as XoVif['id'])
   }
 
   /**
+   * Returns all alarms that match the following privilege:
+   * - resource: alarm, action: read
+   *
    * @example id "f028c5d4-578a-332c-394e-087aaca32dd3"
    * @example fields "id,time"
    * @example filter "time:>1747053793"
@@ -110,6 +130,7 @@ export class VifController extends XapiXoController<XoVif> {
    */
   @Example(genericAlarmsExample)
   @Get('{id}/alarms')
+  @Security('*', ['acl'])
   @Tags('alarms')
   @Response(notFoundResp.status, notFoundResp.description)
   getVifAlarms(
@@ -124,13 +145,19 @@ export class VifController extends XapiXoController<XoVif> {
     const vif = this.getObject(id as XoVif['id'])
     const alarms = this.#alarmService.getAlarms({
       filter: `${escapeUnsafeComplexMatcher(filter) ?? ''} object:uuid:${vif.uuid}`,
-      limit,
     })
 
-    return this.sendObjects(Object.values(alarms), req, 'alarms')
+    return this.sendObjects(Object.values(alarms), req, {
+      path: 'alarms',
+      limit,
+      privilege: { action: 'read', resource: 'alarm' },
+    })
   }
 
   /**
+   * Returns all messages that match the following privilege:
+   * - resource: message, action: read
+   *
    * @example id "f028c5d4-578a-332c-394e-087aaca32dd3"
    * @example fields "name,id,$object"
    * @example filter "name:VM_STARTED"
@@ -139,6 +166,7 @@ export class VifController extends XapiXoController<XoVif> {
   @Example(messageIds)
   @Example(partialMessages)
   @Get('{id}/messages')
+  @Security('*', ['acl'])
   @Tags('messages')
   @Response(notFoundResp.status, notFoundResp.description)
   getVifMessages(
@@ -150,12 +178,19 @@ export class VifController extends XapiXoController<XoVif> {
     @Query() filter?: string,
     @Query() limit?: number
   ): SendObjects<Partial<Unbrand<XoMessage>>> {
-    const messages = this.getMessagesForObject(id as XoVif['id'], { filter, limit })
+    const messages = this.getMessagesForObject(id as XoVif['id'], { filter })
 
-    return this.sendObjects(Object.values(messages), req, 'messages')
+    return this.sendObjects(Object.values(messages), req, {
+      path: 'messages',
+      limit,
+      privilege: { action: 'read', resource: 'message' },
+    })
   }
 
   /**
+   * Returns all tasks that match the following privilege:
+   * - resource: task, action: read
+   *
    * @example id "f028c5d4-578a-332c-394e-087aaca32dd3"
    * @example fields "id,status,properties"
    * @example filter "status:failure"
@@ -164,6 +199,7 @@ export class VifController extends XapiXoController<XoVif> {
   @Example(taskIds)
   @Example(partialTasks)
   @Get('{id}/tasks')
+  @Security('*', ['acl'])
   @Tags('tasks')
   @Response(notFoundResp.status, notFoundResp.description)
   async getVifTasks(
@@ -174,16 +210,27 @@ export class VifController extends XapiXoController<XoVif> {
     @Query() markdown?: boolean,
     @Query() filter?: string,
     @Query() limit?: number
-  ): Promise<SendObjects<Partial<Unbrand<XoTask>>>> {
-    const tasks = await this.getTasksForObject(id as XoVif['id'], { filter, limit })
+  ): SendObjects<Partial<Unbrand<XoTask>>> {
+    const tasks = await this.getTasksForObject(id as XoVif['id'], { filter })
 
-    return this.sendObjects(Object.values(tasks), req, 'tasks')
+    return this.sendObjects(Object.values(tasks), req, {
+      path: 'tasks',
+      limit,
+      privilege: { action: 'read', resource: 'task' },
+    })
   }
 
   /**
    * @example body {
    *  "networkId": "6b6ca0f5-6611-0636-4b0a-1fb1c1e96414",
-   *  "vmId": "613f541c-4bed-fc77-7ca8-2db6b68f079c"
+   *  "vmId": "613f541c-4bed-fc77-7ca8-2db6b68f079c",
+   *   "other_config": {
+   *"ethtool-tx": "false"
+   *    },
+   *  "qos_algorithm_params": {
+   *    "kbps": "42"
+   *  },
+   *  "qos_algorithm_type": "ratelimit"
    * }
    */
   @Example(vifId)
@@ -232,5 +279,65 @@ export class VifController extends XapiXoController<XoVif> {
   async destroyVif(@Path() id: string): Promise<void> {
     const xapi = this.getXapi(id as XoVif['id'])
     await xapi.deleteVif(id as XoVif['id'])
+  }
+
+  /**
+   * Hotplug the VIF, dynamically attaching it to the running VM
+   * Requires PV drivers to be installed on the VM
+   *
+   * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
+   */
+  @Example(taskLocation)
+  @Post('{id}/actions/connect')
+  @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
+  @Response(noContentResp.status, noContentResp.description)
+  @Response(notFoundResp.status, notFoundResp.description)
+  @Response(internalServerErrorResp.status, internalServerErrorResp.description)
+  async connectVif(@Path() id: string, @Query() sync?: boolean): CreateActionReturnType<void> {
+    const vifId = id as XoVif['id']
+
+    const action = async () => {
+      const xapi = this.getXapi(vifId)
+      await xapi.connectVif(vifId)
+    }
+
+    return this.createAction<void>(action, {
+      sync,
+      statusCode: noContentResp.status,
+      taskProperties: {
+        name: 'connect VIF',
+        objectId: vifId,
+      },
+    })
+  }
+
+  /**
+   * Hot-unplug the VIF, dynamically detaching it from the running VM
+   * Requires PV drivers to be installed on the VM
+   *
+   * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
+   */
+  @Example(taskLocation)
+  @Post('{id}/actions/disconnect')
+  @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
+  @Response(noContentResp.status, noContentResp.description)
+  @Response(notFoundResp.status, notFoundResp.description)
+  @Response(internalServerErrorResp.status, internalServerErrorResp.description)
+  async disconnectVif(@Path() id: string, @Query() sync?: boolean): CreateActionReturnType<void> {
+    const vifId = id as XoVif['id']
+
+    const action = async () => {
+      const xapi = this.getXapi(vifId)
+      await xapi.disconnectVif(vifId)
+    }
+
+    return this.createAction<void>(action, {
+      sync,
+      statusCode: noContentResp.status,
+      taskProperties: {
+        name: 'disconnect VIF',
+        objectId: vifId,
+      },
+    })
   }
 }

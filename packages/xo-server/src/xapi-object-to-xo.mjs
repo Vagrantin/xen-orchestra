@@ -784,6 +784,16 @@ const TRANSFORMS = {
       vdi.$snapshot_of = link(obj, 'snapshot_of')
     } else if (!obj.managed) {
       vdi.type += '-unmanaged'
+    } else {
+      let total = +obj.physical_utilisation
+      let parentUuid = obj.sm_config['vhd-parent']
+      while (parentUuid !== undefined) {
+        const parent = obj.$xapi.getObject(parentUuid, undefined)
+        if (parent === undefined) break
+        total += +parent.physical_utilisation
+        parentUuid = parent.sm_config?.['vhd-parent']
+      }
+      vdi.chainPhysicalUsage = total
     }
 
     return vdi
@@ -857,6 +867,15 @@ const TRANSFORMS = {
       VIFs: link(obj, 'VIFs'),
       nbd: obj.purpose?.includes('nbd'),
       insecureNbd: obj.purpose?.includes('insecure_nbd'),
+      isBonded:
+        obj.$PIFs !== undefined
+          ? obj.$PIFs.some(pif => {
+              const isBondMaster = !isEmpty(pif.bond_master_of)
+              const isBondSlave = pif.bond_slave_of !== 'OpaqueRef:NULL'
+
+              return isBondMaster || isBondSlave
+            })
+          : false,
     }
   },
 

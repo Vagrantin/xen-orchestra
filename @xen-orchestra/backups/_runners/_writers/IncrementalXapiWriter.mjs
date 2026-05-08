@@ -1,11 +1,11 @@
 import humanFormat from 'human-format'
 
 import { asyncMapSettled } from '@xen-orchestra/async-map'
+import { Task } from '@vates/task'
 import ignoreErrors from 'promise-toolbox/ignoreErrors'
 
 import { getOldEntries } from '../../_getOldEntries.mjs'
 import { importIncrementalVm } from '../../_incrementalVm.mjs'
-import { Task } from '../../Task.mjs'
 
 import { AbstractIncrementalWriter } from './_AbstractIncrementalWriter.mjs'
 import { MixinXapiWriter } from './_MixinXapiWriter.mjs'
@@ -57,71 +57,14 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
     debug('checkBaseVdis, got snapshot candidates,', snapshotCandidates.length)
 
     if (snapshotCandidates.length > 0) {
-      // New snapshot-based flow (6.3+): verify no data was written between
-      // the target snapshot and its active VDI.
-      let targetVmRef
-      let canChainToTargetVm = true
-      await asyncEach(
-        snapshotCandidates,
-        async snapshot => {
-          let diffDisk
-          let activeVdi
-          try {
-            activeVdi = sr.$xapi.getObject(snapshot.$snapshot_of)
-            const userVbds = activeVdi.$VBDs?.filter(vbd => vbd.$VM && !vbd.$VM.is_control_domain) ?? []
-            if (userVbds.length !== 1) {
-              debug('checkBaseVdis, share vbd ', { ref: snapshot.$ref, userVbds })
-              // shared vdi ignore
-              return
-            }
-            const vm = userVbds[0].$VM
-            if (!('start' in vm.blocked_operations)) {
-              debug('checkBaseVdis, vm not blocked', { vmRef: vm.$ref })
-              // vm start unlocked
-              // not really an issue since we have check the delta
-              // but it indicates the users played with the blocked operations
-              return
-            }
-            diffDisk = new XapiDiskSource({
-              xapi: sr.$xapi,
-              vdiRef: activeVdi.$ref,
-              baseRef: snapshot.$ref,
-              onlyListChangedBlocks: true,
-            })
-            await diffDisk.init()
-            if (diffDisk.getBlockIndexes().length === 0) {
-              const sourceUuid = snapshot.other_config?.[COPY_OF]
-              if (sourceUuid) {
-                this.#baseVdisBySourceUuid.set(sourceUuid, activeVdi)
-              }
-              // Track the target VM (the replicated VM to update on the next transfer).
-              targetVmRef = vm.$ref
-            } else {
-              // not empty, we will create a new VM
-              canChainToTargetVm = false
-              debug('checkBaseVdis, data between snapshot and active disk', {
-                vdiRef: snapshot.$ref,
-                nbBlocks: diffDisk.getBlockIndexes().length,
-              })
-            }
-          } catch (error) {
-            debug('checkBaseVdis, skipping snapshot', { ref: snapshot.$ref, error })
-            return
-          } finally {
-            await diffDisk?.close().catch(error => debug('checkBaseVdis, error closing', error))
-            await sr.$xapi.VDI_disconnectFromControlDomain(snapshot.$ref)
-            if (activeVdi !== undefined) {
-              await sr.$xapi.VDI_disconnectFromControlDomain(activeVdi.$ref)
-            }
-          }
-        },
-        {
-          concurrency: 4,
-        }
-      )
-
-      if (canChainToTargetVm && targetVmRef !== undefined) {
-        debug('checkBaseVdis,got a valid vm target', targetVmRef)
+      // reset before searching for candidates
+      this.#baseVdisBySourceUuid = new Map()
+      this._targetVmRef = undefined
+      const { baseVdisBySourceUuid, targetVmRef } = await this.#validateSnapshotCandidates(snapshotCandidates)
+      for (const [sourceUuid, vdi] of baseVdisBySourceUuid) {
+        this.#baseVdisBySourceUuid.set(sourceUuid, vdi)
+      }
+      if (targetVmRef !== undefined) {
         this._targetVmRef = targetVmRef
       }
     } else {
@@ -145,26 +88,117 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
       }
     }
   }
+  /**
+   * 6.3+ snapshot-based validation: for each snapshot candidate, check whether
+   * the active VDI has diverged from the snapshot. Returns a baseVdisBySourceUuid
+   * map and, when all disks are clean, the targetVmRef to reuse.
+   */
+  async #validateSnapshotCandidates(snapshotCandidates) {
+    const sr = this._sr
+    const baseVdisBySourceUuid = new Map()
+    let targetVmRef
+    let canChainToTargetVm = true
+
+    await asyncEach(
+      snapshotCandidates,
+      async snapshot => {
+        let diffDisk
+        let activeVdi
+        try {
+          activeVdi = sr.$xapi.getObject(snapshot.$snapshot_of)
+          const userVbds = activeVdi.$VBDs?.filter(vbd => vbd.$VM && !vbd.$VM.is_control_domain) ?? []
+          if (userVbds.length !== 1) {
+            debug('checkBaseVdis, shared vbd ', { ref: snapshot.$ref, userVbds })
+            // shared vdi ignore
+            return
+          }
+          const vm = userVbds[0].$VM
+          if (!('start' in vm.blocked_operations)) {
+            debug('checkBaseVdis, vm not blocked', { vmRef: vm.$ref })
+            // vm start unlocked
+            // not really an issue since we have check the delta
+            // but it indicates the users played with the blocked operations
+            return
+          }
+          diffDisk = new XapiDiskSource({
+            xapi: sr.$xapi,
+            vdiRef: activeVdi.$ref,
+            baseRef: snapshot.$ref,
+            onlyListChangedBlocks: true,
+          })
+          await diffDisk.init()
+          const sourceUuid = snapshot.other_config?.[COPY_OF]
+          if (diffDisk.getBlockIndexes().length === 0) {
+            // no block modification since the common snapshot, we can chain VM and disk
+            if (sourceUuid) {
+              baseVdisBySourceUuid.set(sourceUuid, activeVdi)
+            }
+            // Track the target VM (the replicated VM to update on the next transfer).
+            targetVmRef = vm.$ref
+          } else {
+            if (sourceUuid) {
+              baseVdisBySourceUuid.set(sourceUuid, snapshot)
+            }
+            // there are changed block since the snapshot
+            // we can reuse it to transfer a delta, but we will
+            // create a new VM
+            canChainToTargetVm = false
+            debug('checkBaseVdis, data between snapshot and active disk', {
+              vdiRef: snapshot.$ref,
+              nbBlocks: diffDisk.getBlockIndexes().length,
+            })
+          }
+        } catch (error) {
+          debug('checkBaseVdis, skipping snapshot', { ref: snapshot.$ref, error })
+          return
+        } finally {
+          await diffDisk?.close().catch(error => debug('checkBaseVdis, error closing', error))
+          await sr.$xapi.VDI_disconnectFromControlDomain(snapshot.$ref)
+          if (activeVdi !== undefined) {
+            await sr.$xapi.VDI_disconnectFromControlDomain(activeVdi.$ref)
+          }
+        }
+      },
+      {
+        concurrency: 4,
+      }
+    )
+
+    if (!canChainToTargetVm) {
+      // if at least one disk has new data, create a new VM
+      // instead of updating it
+      targetVmRef = undefined
+    } else if (targetVmRef !== undefined) {
+      debug('checkBaseVdis,got a valid vm target', targetVmRef)
+    }
+
+    return { baseVdisBySourceUuid, targetVmRef }
+  }
+
   updateUuidAndChain() {
     // nothing to do, the chaining is not modified in this case
   }
   prepare({ isFull }) {
     // create the task related to this export and ensure all methods are called in this context
     const task = new Task({
-      name: 'export',
-      data: {
+      properties: {
         id: this._sr.uuid,
         isFull,
+        name: 'export',
         name_label: this._sr.name_label,
         type: 'SR',
       },
     })
-    const hasHealthCheckSr = this._healthCheckSr !== undefined
-    this.transfer = task.wrapFn(this.transfer)
-    this.cleanup = task.wrapFn(this.cleanup, !hasHealthCheckSr)
-    this.healthCheck = task.wrapFn(this.healthCheck, hasHealthCheckSr)
+    this._prepare = task.wrapInside(this._prepare)
+    this.transfer = task.wrapInside(this.transfer)
+    if (this._healthCheckSr !== undefined) {
+      this.cleanup = task.wrapInside(this.cleanup)
+      this.healthCheck = task.wrap(this.healthCheck)
+    } else {
+      this.cleanup = task.wrap(this.cleanup)
+    }
 
-    return task.run(() => this._prepare(isFull))
+    return this._prepare(isFull)
   }
 
   async _prepare(isFull) {
@@ -265,7 +299,7 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
     const { uuid: srUuid, $xapi: xapi } = sr
 
     let targetVmRef
-    await Task.run({ name: 'transfer' }, async () => {
+    await Task.run({ properties: { name: 'transfer' } }, async () => {
       targetVmRef = await importIncrementalVm(this.#decorateVmMetadata(deltaExport, timestamp), sr, {
         targetRef: this._targetVmRef,
       })
@@ -289,7 +323,7 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
           ` -- last replication: ${formatFilenameDate(timestamp)} ${humanFormat.bytes(size)} read`
       )
       // take a snapshot to ensure these data are not modified until next snapshot
-      await Task.run({ name: 'target snapshot' }, async () => {
+      await Task.run({ properties: { name: 'target snapshot' } }, async () => {
         await xapi.VM_snapshot(targetVmRef, {
           name_label: `${vm.name_label} - ${job.name} / ${schedule.name} ${formatFilenameDate(timestamp)}`,
         })
