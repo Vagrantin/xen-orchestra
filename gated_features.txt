@@ -1,0 +1,93 @@
+9:import { UpdateTag } from '../xoa/update'
+10:import { NotificationTag } from '../xoa/notifications'
+18:  subscribeProxies,
+70:    subscribeProxies(proxies => {
+71:      cb(map(proxies, 'id').sort())
+91:    this._updateProxiesSubscriptions()
+98:    this._unsubscribeProxiesApplianceUpdaterState()
+107:      this._updateProxiesSubscriptions()
+111:  _areProxiesOutOfDate = createSelector(
+115:  _getNProxiesErrors = createSelector(
+192:  _updateProxiesSubscriptions = () => {
+208:    if (this._unsubscribeProxiesApplianceUpdaterState !== undefined) {
+209:      this._unsubscribeProxiesApplianceUpdaterState()
+212:    this._unsubscribeProxiesApplianceUpdaterState = () => forEach(unsubs, unsub => unsub())
+230:    const nProxiesErrors = this._getNProxiesErrors()
+352:        to: isAdmin ? 'xoa/update' : 'xoa/notifications',
+353:        icon: 'menu-xoa',
+354:        label: 'xoa',
+361:            to: 'xoa/update',
+367:            to: 'xoa/licenses',
+372:            to: 'xoa/notifications',
+378:            to: 'xoa/support',
+461:        to: '/hub/templates',
+462:        icon: 'menu-hub',
+463:        label: 'hubPage',
+466:            to: '/hub/templates',
+467:            icon: 'hub-template',
+471:            to: '/hub/recipes',
+472:            icon: 'hub-recipe',
+478:        to: '/proxies',
+480:        label: 'proxies',
+482:          this._areProxiesOutOfDate() ? (
+483:            <Tooltip content={_('proxiesNeedUpgrade')}>
+491:          ) : nProxiesErrors > 0 ? (
+492:            <Tooltip content={_('someProxiesHaveErrors', { n: nProxiesErrors })}>
+493:              <span className='tag tag-pill tag-danger'>{nProxiesErrors}</span>
+506:        to: '/xostor',
+507:        label: 'xostor',
+508:        icon: 'menu-xostor',
+602:              <Link className='nav-link' style={LINK_STYLE} to='/xoa/support'>
+604:                  <Icon icon='diagnosis' size='lg' fixedWidth /> {_('checkXoa')}
+packages/xo-web/src/xo-app/hub/templates/resource.js
+packages/xo-web/src/xo-app/hub/templates/resource-form.js
+packages/xo-web/src/xo-app/hub/templates/index.js
+packages/xo-web/src/xo-app/hub/index.js
+packages/xo-web/src/xo-app/hub/recipes/recipe-form-kub.js
+packages/xo-web/src/xo-app/hub/recipes/recipe-kub.js
+packages/xo-web/src/xo-app/hub/recipes/recipe-ev.js
+packages/xo-web/src/xo-app/hub/recipes/index.js
+packages/xo-web/src/xo-app/hub/recipes/recipe-form-ev.js
+packages/xo-web/src/xo-app/xostor/xostor-list.js
+packages/xo-web/src/xo-app/xostor/index.js
+packages/xo-web/src/xo-app/xostor/new-xostor-form.js
+packages/xo-web/src/xo-app/xoa/licenses/xostor.js
+35:import deployProxy from './deploy-proxy'
+86:    handler: (proxy, { deployProxy }) =>
+87:      deployProxy({
+91:    label: _('redeployProxyAction'),
+323:      async deployProxy({ fetchProxyUpgrades }, proxy) {
+324:        await deployProxy(proxy)
+365:            handler={effects.deployProxy}
+370:            {_('deployProxy')}
+389:          data-deployProxy={effects.deployProxy}
+9:import { UpdateTag } from '../xoa/update'
+10:import { NotificationTag } from '../xoa/notifications'
+11:import { addSubscriptions, connectStore, getXoaPlan, noop } from 'utils'
+16:  subscribeNotifications,
+19:  subscribeProxyApplianceUpdaterState,
+32:  getXoaState,
+59:      xoaState: getXoaState(state, props),
+67:  notifications: subscribeNotifications,
+79:    const updateCollapsed = () => {
+82:    updateCollapsed()
+84:    window.addEventListener('resize', updateCollapsed)
+86:      window.removeEventListener('resize', updateCollapsed)
+90:    this._updateMissingPatchesSubscriptions()
+91:    this._updateProxiesSubscriptions()
+98:    this._unsubscribeProxiesApplianceUpdaterState()
+101:  componentDidUpdate(prevProps) {
+103:      this._updateMissingPatchesSubscriptions()
+107:      this._updateProxiesSubscriptions()
+133:  _getNoNotifications = createSelector(
+134:    () => this.props.notifications,
+135:    notifications => every(notifications, { read: true })
+169:  _updateMissingPatchesSubscriptions = () => {
+192:  _updateProxiesSubscriptions = () => {
+198:      subscribeProxyApplianceUpdaterState(proxyId, ({ state: proxyState = '' }) => {
+208:    if (this._unsubscribeProxiesApplianceUpdaterState !== undefined) {
+209:      this._unsubscribeProxiesApplianceUpdaterState()
+212:    this._unsubscribeProxiesApplianceUpdaterState = () => forEach(unsubs, unsub => unsub())
+226:    const { isAdmin, isPoolAdmin, nResolvedTasks, state, status, user, pools, nHosts, srs, xoaState } = this.props
+229:    const noNotifications = this._getNoNotifications()
+352:        to: isAdmin ? 'xoa/update' : 'xoa/notifications',
