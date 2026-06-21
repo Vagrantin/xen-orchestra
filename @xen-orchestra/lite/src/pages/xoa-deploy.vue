@@ -151,6 +151,7 @@
                 :required="isEditable"
                 :placeholder="isEditable ? 'email@example.com' : 'admin@admin.net'"
               />
+              <FormInput value="admin@admin.net" placeholder="admin@admin.net" disabled />
             </VtsInputWrapper>
           </div>
           <div class="row">
@@ -165,6 +166,7 @@
                 :required="isEditable"
                 :placeholder="isEditable ? t('password') : 'admin'"
               />
+              <FormInput value="admin" placeholder="admin" disabled />
             </VtsInputWrapper>
             <VtsInputWrapper
               :label="t('admin-password-confirm')"
@@ -177,6 +179,7 @@
                 :required="isEditable"
                 :placeholder="isEditable ? t('password') : 'admin'"
               />
+              <FormInput value="admin" placeholder="admin" disabled />
             </VtsInputWrapper>
           </div>
         </FormSection>
@@ -208,6 +211,10 @@
                 :disabled="!isEditable || !enableSshAccount"
                 :required="isEditable && enableSshAccount"
               />
+              <FormInput value="xopass" placeholder="xopass" disabled />
+            </VtsInputWrapper>
+            <VtsInputWrapper :label="t('ssh-password-confirm')">
+              <FormInput value="xopass" placeholder="xopass" disabled />
             </VtsInputWrapper>
           </div>
         </FormSection>
@@ -298,6 +305,27 @@ function buildProxyUrl(sourceUrl: string, sslVerify: boolean): string {
     params.set('verify_ssl', 'false')
   }
   return `http://${XOA_PROXY_BIND_ADDRESS}:${XOA_PROXY_PORT}/image.xva?${params.toString()}`
+// ── XOA image source & proxy ──────────────────────────────────────────────────
+//
+// The official XOA appliance image is distributed as a gzip-compressed XVA
+// over HTTPS. XAPI's VM.import speaks only HTTP and expects an uncompressed
+// stream, so we route through xoa-proxy.py running on Dom0.
+//
+// XOA_SOURCE_URL: update this to the current Vates download URL.
+//   Format:  https://<host>/path/to/xoa-<version>.xva.gz
+//   Obtain the signed URL from https://vates.tech/deploy/ if required.
+//
+// XOA_PROXY_PORT: must match the PORT constant in xoa-proxy.py (default 9001).
+//   The proxy listens on 127.0.0.1 — reachable by XAPI on the same Dom0 host.
+//
+// VM.import receives: http://127.0.0.1:9001/image.xva?src=<encoded-source-url>
+// xoa-proxy.py fetches the src URL via HTTPS, gunzips on-the-fly, streams back.
+const XOA_SOURCE_URL = 'https://xoa.io/xoa-lts.xva.gz'
+const XOA_PROXY_PORT = 9001
+
+/** Builds the local proxy URL that VM.import will pull from. */
+function buildProxyUrl(sourceUrl: string): string {
+  return `http://127.0.0.1:${XOA_PROXY_PORT}/image.xva?src=${encodeURIComponent(sourceUrl)}`
 }
 
 const { t } = useI18n()
@@ -490,6 +518,14 @@ async function deploy() {
     vmRef.value = (
       (await xapi.call('VM.import', [
         importUrl,
+    // xoa-proxy.py (running on Dom0) fetches XOA_SOURCE_URL via HTTPS,
+    // decompresses the .xva.gz on-the-fly, and serves the raw .xva over HTTP.
+    // XAPI's VM.import then consumes the plain HTTP stream directly.
+    const proxyUrl = buildProxyUrl(XOA_SOURCE_URL)
+
+    vmRef.value = (
+      (await xapi.call('VM.import', [
+        proxyUrl,
         selectedSr.value.$ref,
         false, // full_restore
         false, // force
@@ -501,6 +537,7 @@ async function deploy() {
     const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
 
     if (vifRef !== undefined) {
+    if (vifRef.length > 0) {
       await xapi.call('VIF.destroy', [vifRef])
     }
 

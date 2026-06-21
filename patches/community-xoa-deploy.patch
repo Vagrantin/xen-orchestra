@@ -1,5 +1,9 @@
 diff --git a/@xen-orchestra/lite/scripts/xolite-loader.html b/@xen-orchestra/lite/scripts/xolite-loader.html
+<<<<<<< HEAD
 index 9d48835c7..f1ad24a16 100644
+=======
+index 9d48835c7..13c73bd31 100644
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
 --- a/@xen-orchestra/lite/scripts/xolite-loader.html
 +++ b/@xen-orchestra/lite/scripts/xolite-loader.html
 @@ -7,23 +7,9 @@
@@ -19,6 +23,7 @@ index 9d48835c7..f1ad24a16 100644
 -        } catch (err) {
 -          console.log(err?.message ?? err)
 -          // Fallback to local version of XO Lite
+<<<<<<< HEAD
 -          document.open()
 -          document.write(await (await fetch('./xolite.html')).text())
 -          document.close()
@@ -26,10 +31,17 @@ index 9d48835c7..f1ad24a16 100644
 +        document.open()
 +        document.write(await (await fetch('./xolite.html')).text())
 +        document.close()
+=======
+           document.open()
+           document.write(await (await fetch('./xolite.html')).text())
+           document.close()
+-        }
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
        })()
      </script>
    </head>
 diff --git a/@xen-orchestra/lite/src/pages/xoa-deploy.vue b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
+<<<<<<< HEAD
 index 26937a4d7..18765c2ef 100644
 --- a/@xen-orchestra/lite/src/pages/xoa-deploy.vue
 +++ b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
@@ -310,17 +322,37 @@ index 26937a4d7..18765c2ef 100644
          false, // full_restore
          false, // force
 @@ -371,7 +499,10 @@ async function deploy() {
+=======
+index 26937a4d7..8fac217e3 100644
+--- a/@xen-orchestra/lite/src/pages/xoa-deploy.vue
++++ b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
+@@ -361,7 +361,7 @@ async function deploy() {
+ 
+     vmRef.value = (
+       (await xapi.call('VM.import', [
+-        'http://xoa.io/xva',
++        'http://192.168.0.1:3000/image.xva',
+         selectedSr.value.$ref,
+         false, // full_restore
+         false, // force
+@@ -371,7 +371,10 @@ async function deploy() {
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
      status.value = t('deploy-xoa-status:configuring')
  
      const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
 -    await xapi.call('VIF.destroy', [vifRef])
 +
 +    if (vifRef !== undefined) {
+<<<<<<< HEAD
 +      await xapi.call('VIF.destroy', [vifRef])
+=======
++    	await xapi.call('VIF.destroy', [vifRef])
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
 +    }
  
      if (!deploying.value) {
        return
+<<<<<<< HEAD
 @@ -508,6 +639,29 @@ async function cancel() {
    }
  }
@@ -395,3 +427,5 @@ index 635202c11..6e175a7b5 100644
    "xoa-ip": "XOA IP address",
    "xoa-password-confirm-different": "XOA password confirmation is different",
    "xoa-ssh-account": "XOA SSH account",
+=======
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
