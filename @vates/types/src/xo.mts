@@ -433,6 +433,7 @@ export type XoPool = BaseXapiXo & {
   current_operations: Record<string, POOL_ALLOWED_OPERATIONS>
   default_SR?: XoSr['id']
   HA_enabled: boolean
+  haRebootVmOnInternalShutdown: boolean
   haSrs: XoSr['id'][]
   id: Branded<'pool'>
   master: XoHost['id']
@@ -666,7 +667,7 @@ export type XoTask = {
     userId?: string
     [key: string]: unknown | undefined
   }
-  result: Record<string, unknown>
+  result?: Record<string, unknown>
   start: number
   status: 'failure' | 'interrupted' | 'pending' | 'success'
   tasks?: XoTask[]
@@ -680,7 +681,7 @@ export type XoUser = {
   groups: XoGroup['id'][]
   id: Branded<'user'>
   name?: string
-  permission: string
+  permission: 'none' | 'admin'
   pw_hash?: string
   preferences: Record<string, string>
 }
@@ -861,8 +862,6 @@ export type NonXapiXoRecord<
   | AnyXoBackupArchive
   | AnyXoJob
   | AnyXoLog
-  | XoGroup
-  | XoProxy
   | XoGroup
   | XoProxy
   | XoJob

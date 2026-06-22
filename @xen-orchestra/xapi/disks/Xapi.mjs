@@ -125,7 +125,8 @@ export class XapiDiskSource extends DiskPassthrough {
     const readAhead = new ReadAhead(source)
     source = new TimeoutDisk(source, this.#timeout)
     const label = await xapi.getField('VDI', vdiRef, 'name_label')
-    readAhead.progressHandler = new XapiProgressHandler(xapi, `Exporting content of VDI ${label} through NBD`)
+    // manually create an export task for NBD since xapi xan't do it automatically
+    readAhead.addProgressHandler(new XapiProgressHandler(xapi, `Exporting content of VDI ${label} through NBD`))
     return readAhead
   }
 
@@ -228,10 +229,13 @@ export class XapiDiskSource extends DiskPassthrough {
         source = new DiskLargerBlock(source, this.#blockSize)
       }
       const label = await xapi.getField('VDI', vdiRef, 'name_label')
-      readAhead.progressHandler = new XapiProgressHandler(xapi, `Exporting content of VDI ${label} through NBD+CBT`)
+      // manually create an export task for NBD since xapi xan't do it automatically
+      readAhead.addProgressHandler(new XapiProgressHandler(xapi, `Exporting content of VDI ${label} through NBD+CBT`))
       return readAhead
     } catch (error) {
-      info('Error in openNbdCBT', error)
+      if (error.code !== 'CBT_DISABLED') {
+        info('Error in openNbdCBT', error)
+      }
       // init probaby failed, so nothing to close , but better safe than sorry
       await source?.close().catch(warn)
 

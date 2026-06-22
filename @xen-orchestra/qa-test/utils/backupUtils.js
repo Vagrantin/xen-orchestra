@@ -19,10 +19,43 @@ export const assertRepositoryEmpty = async (dispatchClient, repository) => {
   const count = Object.values(backups).flatMap(vmBackups => Object.values(vmBackups).flat()).length
 
   if (count > 0) {
-    throw new Error(
+    const message =
       `Repository "${repository.name}" (${repository.id}) contains ${count} existing backup(s). ` +
-        `Tests require empty repositories to avoid accidental data loss. ` +
-        `Please purge the backups manually or use a dedicated test repository.`
+      `Tests require empty repositories to avoid accidental data loss. ` +
+      `Please purge the backups manually or use a dedicated test repository.`
+    log.warn(message, { repositoryName: repository.name, repositoryId: repository.id, count })
+    throw new Error(message)
+  }
+}
+
+/**
+ * Asserts that a backup repository's URL matches the URL declared in the .env.
+ *
+ * The QA suite identifies repositories by name (e.g. `BACKUP_REPOSITORY_NAME`)
+ * but it is the URL that determines where data physically lands. If a repository
+ * with the expected name already exists on the XO server but points at a different
+ * location, tests would silently operate on the wrong remote. This check fails fast
+ * so that the operator can either delete the misconfigured remote in XO or update
+ * the .env to match it.
+ *
+ * Passwords are stripped before comparison: XO obfuscates stored remote passwords,
+ * so comparing credentials would always fail for existing remotes.
+ *
+ * @param {{id: string, name: string, url: string}} repository - Repository as returned by the REST API
+ * @param {string} expectedUrl - Full @xen-orchestra/fs URL expected by the test (from `BACKUP_REPOSITORY_URL`)
+ * @throws {Error} If `repository.url` does not match `expectedUrl` (ignoring password)
+ */
+export const assertRepositoryMatchesConfig = (repository, expectedUrl) => {
+  // Strip password from scheme://user:password@host URLs before comparing.
+  // XO returns stored URLs with an obfuscated password, so credential comparison
+  // would always fail for an already-existing remote.
+  const stripPassword = url => url.replace(/(:\/\/[^:@/]+):([^@]+)@/, '$1:***@')
+
+  if (stripPassword(repository.url) !== stripPassword(expectedUrl)) {
+    throw new Error(
+      `Backup repository "${repository.name}" (${repository.id}) has url "${repository.url}", ` +
+        `but the .env requires "${expectedUrl}". ` +
+        `Delete this remote in XO and re-run, or update the env to match the existing remote.`
     )
   }
 }
@@ -95,7 +128,7 @@ export const assertBackupSuccess = (result, context = 'Backup') => {
   if (result.status !== 'success') {
     const errors = extractBackupErrors(result)
     const details = errors.length > 0 ? errors.join(' | ') : 'no task-level error details'
-    log.warn(`${context} failed`, { tasks: result.tasks })
+    log.warn(`${context} failed`, { details, tasks: result.tasks })
     assert.strictEqual(result.status, 'success', `${context} should succeed, got '${result.status}': ${details}`)
   }
 }

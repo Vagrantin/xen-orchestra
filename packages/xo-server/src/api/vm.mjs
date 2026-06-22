@@ -752,7 +752,7 @@ set.params = {
   // Kernel arguments for PV VM.
   PV_args: { type: 'string', optional: true },
 
-  cpuMask: { type: 'array', optional: true },
+  cpuMask: { type: 'array', items: { type: 'integer' }, optional: true },
 
   cpuWeight: { type: ['integer', 'null'], optional: true },
 
@@ -1302,6 +1302,13 @@ async function handleVmImport(req, res, { data, srId, type, xapi }) {
   // Timeout seems to be broken in Node 4.
   // See https://github.com/nodejs/node/issues/3319
   req.setTimeout(43200000) // 12 hours
+
+  // Propagate content-length so putResource avoids the 1PiB fallback hack that causes
+  // IMPORT_ERROR_PREMATURE_EOF — same reason multipart sets part.length = part.byteCount.
+  const contentLength = parseInt(req.headers['content-length'], 10)
+  if (!isNaN(contentLength)) {
+    req.length = contentLength
+  }
 
   // expect "multipart/form-data; boundary=something"
   const contentType = req.headers['content-type']

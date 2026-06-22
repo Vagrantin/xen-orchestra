@@ -1,19 +1,21 @@
 import {
+  Body,
+  Delete,
   Example,
+  Extension,
   Get,
+  Middlewares,
+  Patch,
   Path,
   Post,
+  Put,
   Query,
   Request,
   Response,
   Route,
   Security,
-  Tags,
   SuccessResponse,
-  Body,
-  Put,
-  Delete,
-  Middlewares,
+  Tags,
 } from 'tsoa'
 import { Request as ExRequest, json } from 'express'
 import { inject } from 'inversify'
@@ -33,12 +35,13 @@ import type {
   XoMessage,
   XoNetwork,
   XoVif,
-  XoPif,
   XoSr,
 } from '@vates/types'
 import { PassThrough, Readable } from 'node:stream'
 
-import { acl } from '../middlewares/acl.middleware.mjs'
+import { SUPPORTED_ACTIONS_BY_RESOURCE, type SupportedActions } from '@xen-orchestra/acl'
+
+import { acl, actionsFromBody } from '../middlewares/acl.middleware.mjs'
 import {
   asynchronousActionResp,
   badRequestResp,
@@ -65,10 +68,18 @@ import { BackupJobService } from '../backup-jobs/backup-job.service.mjs'
 import type { UnbrandXoVmBackupJob } from '../backup-jobs/backup-job.type.mjs'
 import { partialVmBackupJobs, vmBackupJobIds } from '../open-api/oa-examples/backup-job.oa-example.mjs'
 import { messageIds, partialMessages } from '../open-api/oa-examples/message.oa-example.mjs'
-import type { UnbrandedVmDashboard } from './vm.type.mjs'
+import type { UnbrandedVmDashboard, UpdateVmRequestBody } from './vm.type.mjs'
 import type { CreateActionReturnType } from '../abstract-classes/base-controller.mjs'
+import { Task } from '@vates/task'
+import { vmExportCompressDeprecated } from '../middlewares/deprecated.middleware.mjs'
 
 const IGNORED_VDIS_TAG = '[NOSNAP]'
+
+// `datasources` is managed through the dedicated `/vms/{id}/stats/data_source`
+// endpoints, not as a direct VM property, so it cannot be updated via PATCH /vms.
+const UPDATE_VM_ACTIONS = Object.keys(SUPPORTED_ACTIONS_BY_RESOURCE.vm.update)
+  .filter(action => action !== 'datasources')
+  .map(k => `update:${k}` as SupportedActions<'vm'>)
 
 @Route('vms')
 @Security('*')
@@ -102,6 +113,7 @@ export class VmController extends XapiXoController<XoVm> {
    */
   @Example(vmIds)
   @Example(partialVms)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('')
   @Security('*', ['acl'])
   getVms(
@@ -127,8 +139,9 @@ export class VmController extends XapiXoController<XoVm> {
    *
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
+  @Extension('x-mcp-exposure', 'deny')
   @Get('{id}.{format}')
-  @Middlewares(acl({ resource: 'vm', action: 'export', objectId: 'params.id' }))
+  @Middlewares([acl({ resource: 'vm', action: 'export', objectId: 'params.id' }), vmExportCompressDeprecated])
   @SuccessResponse(200, 'Download started', 'application/octet-stream')
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
   @Response(notFoundResp.status, notFoundResp.description)
@@ -136,8 +149,8 @@ export class VmController extends XapiXoController<XoVm> {
   async exportVm(
     @Request() req: ExRequest,
     @Path() id: string,
-    @Path() format: 'xva' | 'ova',
-    @Query() compress?: boolean
+    @Path() format: Parameters<VmService['export']>[2]['format'],
+    @Query() compress?: Parameters<VmService['export']>[2]['compress']
   ): Promise<Readable> {
     const stream = await this.#vmService.export(id as XoVm['id'], 'VM', { compress, format, response: req.res })
     process.on('SIGTERM', () => req.destroy())
@@ -153,6 +166,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(vm)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}')
   @Middlewares(acl({ resource: 'vm', action: 'read', objectId: 'params.id' }))
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
@@ -162,11 +176,50 @@ export class VmController extends XapiXoController<XoVm> {
   }
 
   /**
+   * Partial update of a VM. Only the fields present in the body are modified;
+   * everything else is left untouched.
+   *
+   * Operations are applied sequentially: if one fails, previously applied
+   * changes are not rolled back.
+   *
+   * Required privilege per field provided in the body:
+   * - resource: vm, action: update:&lt;field&gt; (e.g. update:nameLabel, update:cpus, ...)
+   *
+   * Special fields:
+   * - `xenStoreData` keys are automatically prefixed with `vm-data/` when missing
+   *
+   * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
+   * @example body {
+   *    "nameLabel": "web-prod-01",
+   *    "nameDescription": "Production web frontend — managed by n8n",
+   *    "notes": "Docker containers: nginx, app-1, app-2"
+   * }
+   */
+  @Patch('{id}')
+  @Middlewares([
+    json(),
+    acl({
+      resource: 'vm',
+      actions: actionsFromBody(UPDATE_VM_ACTIONS),
+      objectId: 'params.id',
+    }),
+  ])
+  @SuccessResponse(noContentResp.status, noContentResp.description)
+  @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
+  @Response(notFoundResp.status, notFoundResp.description)
+  @Response(invalidParametersResp.status, invalidParametersResp.description)
+  @Response(internalServerErrorResp.status, internalServerErrorResp.description)
+  async updateVm(@Path() id: string, @Body() body: UpdateVmRequestBody): Promise<void> {
+    await this.#vmService.updateVm(id as XoVm['id'], body)
+  }
+
+  /**
    * Required privilege:
    * - resource: vm, action: delete
    *
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Delete('{id}')
   @Middlewares(acl({ resource: 'vm', action: 'delete', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -188,6 +241,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(vmStatsExample)
+  @Extension('x-mcp-exposure', 'deny')
   @Get('{id}/stats')
   @Middlewares(acl({ resource: 'vm', action: 'read', objectId: 'params.id' }))
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
@@ -244,6 +298,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    * @example dataSource "cpu0"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Put('{id}/stats/data_source/{data_source}')
   @Middlewares(acl({ resource: 'vm', action: 'update:datasources', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -265,6 +320,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    * @example dataSource "cpu0"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Delete('{id}/stats/data_source/{data_source}')
   @Middlewares(acl({ resource: 'vm', action: 'update:datasources', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -286,6 +342,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example body { "hostId": "b61a5c92-700e-4966-a13b-00633f03eea8" }
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/start')
   @Middlewares([
     json(),
@@ -329,6 +386,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/clean_shutdown')
   @Middlewares(acl({ resource: 'vm', action: 'shutdown:clean', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -361,6 +419,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/clean_reboot')
   @Middlewares(acl({ resource: 'vm', action: 'reboot:clean', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -390,6 +449,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/hard_shutdown')
   @Middlewares(acl({ resource: 'vm', action: 'shutdown:hard', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -420,6 +480,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/hard_reboot')
   @Middlewares(acl({ resource: 'vm', action: 'reboot:hard', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -452,6 +513,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/pause')
   @Middlewares(acl({ resource: 'vm', action: 'pause', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -484,6 +546,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/suspend')
   @Middlewares(acl({ resource: 'vm', action: 'suspend', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -516,6 +579,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/resume')
   @Middlewares(acl({ resource: 'vm', action: 'resume', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -548,6 +612,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/unpause')
   @Middlewares(acl({ resource: 'vm', action: 'unpause', objectId: 'params.id' }))
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -573,12 +638,79 @@ export class VmController extends XapiXoController<XoVm> {
 
   /**
    * Required privilege:
+   * - resource: vm, action: revert-snapshot
+   * - resource: vm, action: snapshot (if `snapshotBefore: true`)
+   *
+   * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
+   * @example body { "snapshotId": "f07ab729-c0e8-721c-45ec-f11276377030", "snapshotBefore": true }
+   */
+  @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
+  @Post('{id}/actions/revert_snapshot')
+  @Middlewares([
+    json(),
+    acl([
+      { resource: 'vm', action: 'revert-snapshot', objectId: 'params.id' },
+      {
+        resource: 'vm',
+        action: ({ req }) => (req.body.snapshotBefore ? 'snapshot' : undefined),
+        objectId: 'params.id',
+      },
+    ]),
+  ])
+  @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
+  @Response(noContentResp.status, noContentResp.description)
+  @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
+  @Response(notFoundResp.status, notFoundResp.description)
+  @Response(invalidParametersResp.status, invalidParametersResp.description)
+  @Response(internalServerErrorResp.status, internalServerErrorResp.description)
+  async revertSnapshotVm(
+    @Path() id: string,
+    @Body() body: { snapshotId: string; snapshotBefore?: boolean },
+    @Query() sync?: boolean
+  ): CreateActionReturnType<void> {
+    const vmId = id as XoVm['id']
+    const action = async () => {
+      const snapshotId = body.snapshotId as XoVmSnapshot['id']
+
+      // Ensure the snapshot belongs to this VM
+      const vm = this.getObject(vmId)
+      if (!vm.snapshots.includes(snapshotId)) {
+        throw invalidParameters(`snapshot ${snapshotId} does not belong to VM ${vmId}`)
+      }
+
+      if (body.snapshotBefore) {
+        await Task.run({ properties: { name: 'snapshot VM', objectId: vmId, objectType: 'VM' } }, () =>
+          this.getXapiObject(vmId).$snapshot({ ignoredVdisTag: IGNORED_VDIS_TAG })
+        )
+
+        await Task.run({ properties: { name: 'revert snapshot', objectId: vmId, objectType: 'VM' } }, () =>
+          this.getXapi(vmId).revertVm(snapshotId)
+        )
+      } else {
+        await this.getXapi(vmId).revertVm(snapshotId)
+      }
+    }
+
+    return this.createAction<void>(action, {
+      sync,
+      statusCode: noContentResp.status,
+      taskProperties: {
+        name: 'revert VM snapshot',
+        objectId: vmId,
+      },
+    })
+  }
+
+  /**
+   * Required privilege:
    * - resource: vm, action: snapshot
    *
    * @example id "f07ab729-c0e8-721c-45ec-f11276377030"
    * @example body { "name_label": "my_awesome_snapshot" }
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/snapshot')
   @Middlewares([json(), acl({ resource: 'vm', action: 'snapshot', objectId: 'params.id' })])
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
@@ -615,6 +747,8 @@ export class VmController extends XapiXoController<XoVm> {
   }
 
   /**
+   * Required privilege:
+   * - resource: vm, action: clone
    *
    * - For fast clone on the same SR, omit `srId` and set `fast` to `true`.
    * - For full copy on the same SR, omit `srId` and set `fast` to `false`.
@@ -624,9 +758,11 @@ export class VmController extends XapiXoController<XoVm> {
    * @example body { "name_label": "cloned_vm", "fast": true }
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/clone')
-  @Middlewares(json())
+  @Middlewares([json(), acl({ resource: 'vm', action: 'clone', objectId: 'params.id' })])
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
+  @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
   @Response(createdResp.status, createdResp.description)
   @Response(notFoundResp.status, notFoundResp.description)
   @Response(internalServerErrorResp.status, internalServerErrorResp.description)
@@ -689,6 +825,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example limit 42
    */
   @Example(genericAlarmsExample)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/alarms')
   @Security('*', ['acl'])
   @Tags('alarms')
@@ -721,6 +858,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example limit 42
    */
   @Example(vmVdis)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/vdis')
   @Security('*', ['acl'])
   @Tags('vdis')
@@ -753,6 +891,7 @@ export class VmController extends XapiXoController<XoVm> {
    */
   @Example(vmBackupJobIds)
   @Example(partialVmBackupJobs)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/backup-jobs')
   @Security('*', ['acl'])
   @Tags('backup-jobs')
@@ -793,6 +932,7 @@ export class VmController extends XapiXoController<XoVm> {
    */
   @Example(messageIds)
   @Example(partialMessages)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/messages')
   @Security('*', ['acl'])
   @Tags('messages')
@@ -826,6 +966,7 @@ export class VmController extends XapiXoController<XoVm> {
    */
   @Example(taskIds)
   @Example(partialTasks)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/tasks')
   @Security('*', ['acl'])
   @Tags('tasks')
@@ -855,6 +996,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "613f541c-4bed-fc77-7ca8-2db6b68f079c"
    * @example tag "from-rest-api"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Put('{id}/tags/{tag}')
   @Middlewares(acl({ resource: 'vm', action: 'update:tags', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -872,6 +1014,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "613f541c-4bed-fc77-7ca8-2db6b68f079c"
    * @example tag "from-rest-api"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Delete('{id}/tags/{tag}')
   @Middlewares(acl({ resource: 'vm', action: 'update:tags', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -889,6 +1032,7 @@ export class VmController extends XapiXoController<XoVm> {
    * @example id "613f541c-4bed-fc77-7ca8-2db6b68f079c"
    */
   @Example(vmDashboard)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/dashboard')
   @Middlewares(acl({ resource: 'vm', action: 'read', objectId: 'params.id' }))
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
@@ -920,6 +1064,10 @@ export class VmController extends XapiXoController<XoVm> {
   }
 
   /**
+   * Required privileges:
+   * - resource: vm, action: migrate-send
+   * - resource: host, action: migrate-receive (on the destination host)
+   *
    * VIF mapping is not allowed for intra-pool migration
    *
    * Networks and SRs must belong to the same pool as the destination host
@@ -928,9 +1076,19 @@ export class VmController extends XapiXoController<XoVm> {
    * @example body { "hostId": "b61a5c92-700e-4966-a13b-00633f03eea8" }
    */
   @Example(taskLocation)
+  @Extension('x-mcp-exposure', 'confirm')
   @Post('{id}/actions/migrate')
-  @Middlewares(json())
+  @Middlewares([
+    json(),
+    // Two separate checks allow independent control so a user can be allowed to migrate a VM away
+    // without being allowed to place VMs on any specific host, and vice versa.
+    acl([
+      { resource: 'vm', action: 'migrate-send', objectId: 'params.id' },
+      { resource: 'host', action: 'migrate-receive', objectId: 'body.hostId' },
+    ]),
+  ])
   @SuccessResponse(asynchronousActionResp.status, asynchronousActionResp.description)
+  @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
   @Response(noContentResp.status, noContentResp.description)
   @Response(notFoundResp.status, notFoundResp.description)
   @Response(invalidParametersResp.status, invalidParametersResp.description)
@@ -963,6 +1121,7 @@ export class VmController extends XapiXoController<XoVm> {
         migrationNetworkId: migrationNetworkId as XoNetwork['id'] | undefined,
         sr: 'srId' in body ? (body.srId as XoSr['id']) : undefined,
       })
+      return
     }
 
     return this.createAction(action, {

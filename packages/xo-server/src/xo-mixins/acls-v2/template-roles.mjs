@@ -29,6 +29,8 @@ export const REAL_ONLY_ALL = {
     { action: 'read', resource: 'sm', effect: 'allow' },
 
     // XO objects privileges
+    { action: 'read', resource: 'acl-privilege', effect: 'allow' },
+    { action: 'read', resource: 'acl-role', effect: 'allow' },
     { action: 'read', resource: 'alarm', effect: 'allow' },
     { action: 'read', resource: 'backup-archive', effect: 'allow' },
     { action: 'read', resource: 'backup-job', effect: 'allow' },
@@ -80,4 +82,38 @@ export const VMS_READ_ONLY = {
   name: 'VMs read only',
   description: 'Allow to only see VMs',
   privileges: [{ action: 'read', resource: 'vm', effect: 'allow' }],
+}
+
+export const VMS_ADMINISTRATOR = {
+  roleTemplateId: 5,
+  name: 'VMs administrator',
+  description: 'Full control over VM actions',
+  privileges: [
+    { action: '*', resource: 'vm', effect: 'allow' },
+    { action: 'read', resource: 'vm-snapshot', effect: 'allow' },
+  ],
+}
+
+// === Network
+export const NETWORK_ADMINISTRATOR = {
+  roleTemplateId: 6,
+  name: 'Network administrator',
+  description: 'Manage networks across pools, hosts and VMs',
+  privileges: [
+    { action: '*', resource: 'network', effect: 'allow' },
+    { action: 'create:network', resource: 'pool', effect: 'allow' },
+    { action: 'read', resource: 'pool', effect: 'allow' },
+    { action: 'read', resource: 'pif', effect: 'allow' },
+    { action: 'update', resource: 'pif', effect: 'allow' },
+    { action: '*', resource: 'vif', effect: 'allow' },
+    { action: 'read', resource: 'host', effect: 'allow' },
+    { action: 'read', resource: 'vm', effect: 'allow' },
+  ],
+}
+
+export const ADMINISTRATOR = {
+  roleTemplateId: 7,
+  name: 'Administrator',
+  description: 'Full access to the entire infrastructure.',
+  privileges: REAL_ONLY_ALL.privileges.map(privilege => ({ ...privilege, action: '*' })),
 }

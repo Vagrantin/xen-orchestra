@@ -1,7 +1,9 @@
 import {
   Delete,
   Example,
+  Extension,
   Get,
+  Middlewares,
   Path,
   Put,
   Query,
@@ -11,7 +13,6 @@ import {
   Security,
   SuccessResponse,
   Tags,
-  Middlewares,
 } from 'tsoa'
 import { Request as ExRequest } from 'express'
 import { inject } from 'inversify'
@@ -44,6 +45,7 @@ import {
 } from '../open-api/oa-examples/vm-snapshot.oa-example.mjs'
 import { VmService } from '../vms/vm.service.mjs'
 import { messageIds, partialMessages } from '../open-api/oa-examples/message.oa-example.mjs'
+import { vmExportCompressDeprecated } from '../middlewares/deprecated.middleware.mjs'
 
 @Route('vm-snapshots')
 @Security('*')
@@ -75,6 +77,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    */
   @Example(vmSnapshotIds)
   @Example(partialVmSnapshots)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('')
   @Security('*', ['acl'])
   getVmSnapshots(
@@ -100,8 +103,9 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    *
    * @example id "d68fca2c-41e6-be87-d790-105c1642a090"
    */
+  @Extension('x-mcp-exposure', 'deny')
   @Get('{id}.{format}')
-  @Middlewares(acl({ resource: 'vm-snapshot', action: 'export', objectId: 'params.id' }))
+  @Middlewares([acl({ resource: 'vm-snapshot', action: 'export', objectId: 'params.id' }), vmExportCompressDeprecated])
   @SuccessResponse(200, 'Download started', 'application/octet-stream')
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
   @Response(notFoundResp.status, notFoundResp.description)
@@ -110,7 +114,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
     @Request() req: ExRequest,
     @Path() id: string,
     @Path() format: 'xva' | 'ova',
-    @Query() compress?: boolean
+    @Query() compress?: Parameters<VmService['export']>[2]['compress']
   ): Promise<Readable> {
     const stream = await this.#vmService.export(id as XoVmSnapshot['id'], 'VM-snapshot', {
       compress,
@@ -130,6 +134,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    * @example id "d68fca2c-41e6-be87-d790-105c1642a090"
    */
   @Example(vmSnapshot)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}')
   @Middlewares(acl({ resource: 'vm-snapshot', action: 'read', objectId: 'params.id' }))
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
@@ -144,6 +149,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    *
    * @example id "d68fca2c-41e6-be87-d790-105c1642a090"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Delete('{id}')
   @Middlewares(acl({ resource: 'vm-snapshot', action: 'delete', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -165,6 +171,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    * @example limit 42
    */
   @Example(genericAlarmsExample)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/alarms')
   @Security('*', ['acl'])
   @Tags('alarms')
@@ -200,6 +207,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    * @example limit 42
    */
   @Example(vmSnapshotVdis)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/vdis')
   @Security('*', ['acl'])
   @Tags('vdis')
@@ -232,6 +240,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    */
   @Example(messageIds)
   @Example(partialMessages)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/messages')
   @Security('*', ['acl'])
   @Tags('messages')
@@ -265,6 +274,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    */
   @Example(taskIds)
   @Example(partialTasks)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/tasks')
   @Security('*', ['acl'])
   @Tags('tasks')
@@ -294,6 +304,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    * @example id "d68fca2c-41e6-be87-d790-105c1642a090"
    * @example tag "from-rest-api"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Put('{id}/tags/{tag}')
   @Middlewares(acl({ resource: 'vm-snapshot', action: 'update:tags', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -311,6 +322,7 @@ export class VmSnapshotController extends XapiXoController<XoVmSnapshot> {
    * @example id "d68fca2c-41e6-be87-d790-105c1642a090"
    * @example tag "from-rest-api"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Delete('{id}/tags/{tag}')
   @Middlewares(acl({ resource: 'vm-snapshot', action: 'update:tags', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)

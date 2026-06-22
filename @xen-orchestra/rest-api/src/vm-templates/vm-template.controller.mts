@@ -1,17 +1,18 @@
 import {
+  Delete,
   Example,
+  Extension,
   Get,
-  Security,
+  Middlewares,
+  Path,
+  Put,
   Query,
   Request,
   Response,
   Route,
-  Tags,
-  Path,
-  Delete,
+  Security,
   SuccessResponse,
-  Put,
-  Middlewares,
+  Tags,
 } from 'tsoa'
 import { Request as ExRequest } from 'express'
 import { inject } from 'inversify'
@@ -45,6 +46,7 @@ import {
 import { VmService } from '../vms/vm.service.mjs'
 import { messageIds, partialMessages } from '../open-api/oa-examples/message.oa-example.mjs'
 import { partialTasks, taskIds } from '../open-api/oa-examples/task.oa-example.mjs'
+import { vmExportCompressDeprecated } from '../middlewares/deprecated.middleware.mjs'
 
 @Route('vm-templates')
 @Security('*')
@@ -76,6 +78,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    * */
   @Example(vmTemplateIds)
   @Example(partialVmTemplates)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('')
   @Security('*', ['acl'])
   getVmTemplates(
@@ -101,8 +104,9 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    *
    * @example id "b7569d99-30f8-178a-7d94-801de3e29b5b-f873abe0-b138-4995-8f6f-498b423d234d"
    */
+  @Extension('x-mcp-exposure', 'deny')
   @Get('{id}.{format}')
-  @Middlewares(acl({ resource: 'vm-template', action: 'export', objectId: 'params.id' }))
+  @Middlewares([acl({ resource: 'vm-template', action: 'export', objectId: 'params.id' }), vmExportCompressDeprecated])
   @SuccessResponse(200, 'Download started', 'application/octet-stream')
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
   @Response(notFoundResp.status, notFoundResp.description)
@@ -111,7 +115,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
     @Request() req: ExRequest,
     @Path() id: string,
     @Path() format: 'xva' | 'ova',
-    @Query() compress?: boolean
+    @Query() compress?: Parameters<VmService['export']>[2]['compress']
   ): Promise<Readable> {
     const stream = await this.#vmService.export(id as XoVmTemplate['id'], 'VM-template', {
       compress,
@@ -131,6 +135,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    * @example id "b7569d99-30f8-178a-7d94-801de3e29b5b-f873abe0-b138-4995-8f6f-498b423d234d"
    * */
   @Example(vmTemplate)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}')
   @Middlewares(acl({ resource: 'vm-template', action: 'read', objectId: 'params.id' }))
   @Response(forbiddenOperationResp.status, forbiddenOperationResp.description)
@@ -145,6 +150,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    *
    * @example id "6d50ba76-0f11-1ff1-4f6a-b502afc31b8e"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Delete('{id}')
   @Middlewares(acl({ resource: 'vm-template', action: 'delete', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -166,6 +172,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    * @example limit 42
    */
   @Example(genericAlarmsExample)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/alarms')
   @Security('*', ['acl'])
   @Tags('alarms')
@@ -201,6 +208,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    * @example limit 42
    */
   @Example(vmTemplateVdis)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/vdis')
   @Security('*', ['acl'])
   @Tags('vdis')
@@ -233,6 +241,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    */
   @Example(messageIds)
   @Example(partialMessages)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/messages')
   @Security('*', ['acl'])
   @Tags('messages')
@@ -266,6 +275,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    */
   @Example(taskIds)
   @Example(partialTasks)
+  @Extension('x-mcp-exposure', 'allow')
   @Get('{id}/tasks')
   @Security('*', ['acl'])
   @Tags('tasks')
@@ -295,6 +305,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    * @example id "613f541c-4bed-fc77-7ca8-2db6b68f079c"
    * @example tag "from-rest-api"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Put('{id}/tags/{tag}')
   @Middlewares(acl({ resource: 'vm-template', action: 'update:tags', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)
@@ -312,6 +323,7 @@ export class VmTemplateController extends XapiXoController<XoVmTemplate> {
    * @example id "613f541c-4bed-fc77-7ca8-2db6b68f079c"
    * @example tag "from-rest-api"
    */
+  @Extension('x-mcp-exposure', 'confirm')
   @Delete('{id}/tags/{tag}')
   @Middlewares(acl({ resource: 'vm-template', action: 'update:tags', objectId: 'params.id' }))
   @SuccessResponse(noContentResp.status, noContentResp.description)

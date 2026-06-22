@@ -22,6 +22,29 @@ npm install --save @xen-orchestra/rest-api
 
 The REST API is based on the `TSOA` framework and therefore we use decorators a lot to define the behavior of a route or a group of routes. To keep things easily visible, it is best to always use the decorators in the same order.
 
+At the request of the DevOps team, any REST API PR that updates the OpenAPI specification must include a reviewer from the DevOps team. (Non-blocking for merge.)
+
+### Resource consistency
+
+For a given resource (VMs, VIFs, users, etc.), property names must be consistent across all endpoints.
+
+> Example: a PATCH request on a VM must use the same property names as the VM representation returned by the REST API.
+
+```
+GET /vms/:id
+{
+  name_label: 'Foo',
+  name_description: 'Foo Bar',
+  ...
+}
+
+PATCH /vms/:id
+{
+  name_label: 'Bar' // OK ✅
+  nameDescription: 'Bar Foo' // Not OK ❌
+}
+```
+
 ### Class decorator
 
 ```ts
@@ -46,6 +69,7 @@ class Foo extends Controller {
   * @example id 1234
   */
  @Example(['foo', 'bar'])
+ @Extension('x-mcp-exposure', 'allow')
  @Get('{id}')
  @Security('*')
  @Middlewares(json())
@@ -70,7 +94,7 @@ If an endpoint does not have a middleware ACL, it will be accessible **ONLY** to
 
 It is sometimes necessary to check ACLs based on the body of the request sent by the user (for example, for a PATCH endpoint). For this, you can use `actions` (which allows you to pass multiple actions) and `actionsFromBody` (a function exported from `acl.middleware.mts`).
 
-`actionsFromBody(['update:name_label', 'update:name_description'])` checks if `name_label` is present in the request body, and then applies the ACL check. The same applies to `name_description`.
+`actionsFromBody(['update:nameLabel', 'update:nameDescription'])` checks if `nameLabel` is present in the request body, and then applies the ACL check. The same applies to `nameDescription`.
 
 `actionIfNotSelfUser('read')` returns the given action only if the current user is **not** the target user. If the current user is the target (self), no action is returned and the ACL check is skipped entirely.
 
@@ -128,11 +152,11 @@ It is sometimes necessary to check ACLs based on the body of the request sent by
  *
    * Required privileges:
    * - resource: vm, action: update (grants all fields)
-   * - resource: vm, action: update:name_label (if name_label is passed)
-   * - resource: vm, action: update:name_description (if name_description is passed)
+   * - resource: vm, action: update:nameLabel (if nameLabel is passed)
+   * - resource: vm, action: update:nameDescription (if nameDescription is passed)
   */
  @Patch('{id}')
- @Middlewares(acl({resource: 'vm', actions: actionsFromBody(['update:name_label', 'update:name_description']), objectId: 'params.id'}))
+ @Middlewares(acl({resource: 'vm', actions: actionsFromBody(['update:nameLabel', 'update:nameDescription']), objectId: 'params.id'}))
  @Response(403)
  createVdi(@Path() id: string, @Body() body: patchBody) {
   updateVm(id, body)
@@ -161,6 +185,14 @@ getUser(@Path() id: string) { ... }
 ```
 
 If you need to use a privilege that doesn't exist yet (e.g., `resource: 'vm', action: 'foo'`), you must register it in ACL Definition: here `@xen-orchestra/acl/src/actions/vm.mts`, add: `foo: true`.
+
+### MCP exposure
+
+All REST API endpoints must define an MCP exposure policy using the `@Extension` decorator.
+
+- `@Extension('x-mcp-exposure', 'allow')` for all `GET` endpoints.
+- `@Extension('x-mcp-exposure', 'confirm')` for all non-`GET` endpoints (`POST`, `PATCH`, `PUT`, `DELETE`, etc.).
+- `@Extension('x-mcp-exposure', 'deny')` only for exceptional cases.
 
 ## Contributions
 

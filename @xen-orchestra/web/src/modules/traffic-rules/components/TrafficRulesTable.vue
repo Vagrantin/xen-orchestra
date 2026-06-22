@@ -30,9 +30,10 @@
 </template>
 
 <script setup lang="ts">
+import { useDirectionLabels } from '@/modules/traffic-rules/composables/direction-labels.composable.ts'
 import { useTrafficRuleTarget } from '@/modules/traffic-rules/composables/traffic-rule-target.composable.ts'
-import type { EnrichedTrafficRule, TrafficRule } from '@/modules/traffic-rules/types.ts'
-import { getDirectionLabels } from '@/modules/traffic-rules/utils/direction-labels.util.ts'
+import { useTrafficRuleDeleteModal } from '@/modules/traffic-rules/composables/use-traffic-rule-delete-modal.composable.ts'
+import type { EnrichedTrafficRule } from '@/modules/traffic-rules/types.ts'
 import VtsQueryBuilder from '@core/components/query-builder/VtsQueryBuilder.vue'
 import VtsRow from '@core/components/table/VtsRow.vue'
 import VtsTable from '@core/components/table/VtsTable.vue'
@@ -47,6 +48,7 @@ import { useTrafficRulesColumns } from '@core/tables/column-sets/traffic-rules-c
 import { useBooleanSchema } from '@core/utils/query-builder/use-boolean-schema.ts'
 import { useNumberSchema } from '@core/utils/query-builder/use-number-schema.ts'
 import { useStringSchema } from '@core/utils/query-builder/use-string-schema.ts'
+import type { TrafficRule } from '@vates/types'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -60,24 +62,29 @@ const {
   error?: boolean
 }>()
 
+defineSlots<{
+  'title-action'(): any
+}>()
+
 const { t } = useI18n()
 
 const selectedRuleId = useRouteQuery('id')
 
 const getTarget = useTrafficRuleTarget()
 
+const getDirectionLabels = useDirectionLabels()
+
 const enrichedRules = computed(() =>
   rawRules.map((rule, index) => {
-    const [directionA, directionB] = getDirectionLabels(rule)
-
     const target = getTarget(rule)
+    const [directionA, directionB] = getDirectionLabels(rule)
 
     return {
       ...rule,
       order: index + 1,
       directionA,
       directionB,
-      direction: `${directionA} ${directionB}`,
+      directionLabel: `${directionA} ${directionB}`,
       objectLabel: target.suffix ? `${target.label} ${target.suffix.label}` : target.label,
     }
   })
@@ -94,7 +101,7 @@ const schema = useQueryBuilderSchema<EnrichedTrafficRule>({
   }),
   protocol: useStringSchema(t('protocol')),
   port: useNumberSchema(t('port')),
-  direction: useStringSchema(t('direction')),
+  directionLabel: useStringSchema(t('direction')),
   ipRange: useStringSchema(t('target')),
   objectLabel: useStringSchema(t('object')),
 })
@@ -111,16 +118,36 @@ const state = useTableState({
 })
 
 const { HeadCells, BodyCells } = useTrafficRulesColumns({
-  body: (rule: EnrichedTrafficRule & { order: number }) => {
+  body: (rule: EnrichedTrafficRule) => {
+    const {
+      openModal: openTrafficRuleDeleteModal,
+      canRun: canDeleteTrafficRule,
+      isRunning: isDeletingTrafficRule,
+      errorMessage: deleteTrafficRuleErrorMessage,
+    } = useTrafficRuleDeleteModal(() => [rule])
+
     return {
       order: r => r(rule.order),
-      policy: r => r(rule.allow ? t('allow') : t('drop')),
+      policy: r => r(t(rule.allow ? 'allow' : 'drop'), rule.allow ? 'success' : 'danger'),
       protocol: r => r(rule.port ? `${rule.protocol}:${rule.port}` : rule.protocol),
       directionA: r => r(rule.directionA),
       target: r => r(rule.ipRange),
       directionB: r => r(rule.directionB),
       object: r => r(getTarget(rule)),
-      selectItem: r => r(() => (selectedRuleId.value = rule.id)),
+      actions: r =>
+        r({
+          onClick: () => (selectedRuleId.value = rule.id),
+          actions: [
+            {
+              label: t('action:delete'),
+              icon: 'action:delete',
+              onClick: () => openTrafficRuleDeleteModal(),
+              disabled: !canDeleteTrafficRule.value,
+              busy: isDeletingTrafficRule.value,
+              hint: deleteTrafficRuleErrorMessage.value,
+            },
+          ],
+        }),
     }
   },
 })

@@ -34,7 +34,7 @@ declare module 'vhd-lib/disk-consumer/index.mjs' {
   export function toVhdStream(disk: RandomAccessDisk): Promise<Readable>
 }
 
-declare module '@xen-orchestra/backups/disks/openDiskChain.mjs' {
+declare module '@xen-orchestra/backup-archive/disks/openDiskChain.mjs' {
   import type { RemoteHandler } from '@xen-orchestra/fs'
   import type { RandomAccessDisk } from '@xen-orchestra/disk-transform'
 
@@ -45,7 +45,7 @@ declare module '@xen-orchestra/backups/disks/openDiskChain.mjs' {
   }): Promise<RandomAccessDisk>
 }
 
-declare module '@xen-orchestra/backups/disks' {
+declare module '@xen-orchestra/backup-archive/disks' {
   import type { RemoteHandler } from '@xen-orchestra/fs'
   import type { RandomAccessDisk } from '@xen-orchestra/disk-transform'
 
@@ -62,7 +62,7 @@ declare module '@xen-orchestra/backups/disks' {
     dispose: () => Promise<void>
   }
 
-  export function isDisk(handler: RemoteHandler, path: string): boolean
+  export function isDisk(path: string): boolean
 
   export function openDisposableDisk(params: { handler: RemoteHandler; path: string }): Promise<DiskDisposable>
 
