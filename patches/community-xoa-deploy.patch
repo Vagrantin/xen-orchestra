@@ -1,9 +1,5 @@
 diff --git a/@xen-orchestra/lite/scripts/xolite-loader.html b/@xen-orchestra/lite/scripts/xolite-loader.html
-<<<<<<< HEAD
 index 9d48835c7..f1ad24a16 100644
-=======
-index 9d48835c7..13c73bd31 100644
->>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
 --- a/@xen-orchestra/lite/scripts/xolite-loader.html
 +++ b/@xen-orchestra/lite/scripts/xolite-loader.html
 @@ -7,23 +7,9 @@
@@ -23,7 +19,6 @@ index 9d48835c7..13c73bd31 100644
 -        } catch (err) {
 -          console.log(err?.message ?? err)
 -          // Fallback to local version of XO Lite
-<<<<<<< HEAD
 -          document.open()
 -          document.write(await (await fetch('./xolite.html')).text())
 -          document.close()
@@ -31,18 +26,11 @@ index 9d48835c7..13c73bd31 100644
 +        document.open()
 +        document.write(await (await fetch('./xolite.html')).text())
 +        document.close()
-=======
-           document.open()
-           document.write(await (await fetch('./xolite.html')).text())
-           document.close()
--        }
->>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
        })()
      </script>
    </head>
 diff --git a/@xen-orchestra/lite/src/pages/xoa-deploy.vue b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
-<<<<<<< HEAD
-index 26937a4d7..18765c2ef 100644
+index eca915c30..4deffdad4 100644
 --- a/@xen-orchestra/lite/src/pages/xoa-deploy.vue
 +++ b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
 @@ -60,6 +60,30 @@
@@ -88,7 +76,7 @@ index 26937a4d7..18765c2ef 100644
                <FormInput v-model="ntp" placeholder="xxx.xxx.xxx.xxx" />
              </VtsInputWrapper>
            </div>
-@@ -124,7 +145,12 @@
+@@ -124,7 +145,13 @@
                :label="t('admin-login')"
                learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
              >
@@ -99,10 +87,11 @@ index 26937a4d7..18765c2ef 100644
 +                :required="isEditable"
 +                :placeholder="isEditable ? 'email@example.com' : 'admin@admin.net'"
 +              />
++              <FormInput value="admin@admin.net" placeholder="admin@admin.net" disabled />
              </VtsInputWrapper>
            </div>
            <div class="row">
-@@ -132,43 +158,55 @@
+@@ -132,44 +159,62 @@
                :label="t('admin-password')"
                learn-more-url="https://docs.xen-orchestra.com/xoa#default-xo-account"
              >
@@ -114,6 +103,7 @@ index 26937a4d7..18765c2ef 100644
 +                :required="isEditable"
 +                :placeholder="isEditable ? t('password') : 'admin'"
 +              />
++              <FormInput value="admin" placeholder="admin" disabled />
              </VtsInputWrapper>
              <VtsInputWrapper
                :label="t('admin-password-confirm')"
@@ -127,6 +117,7 @@ index 26937a4d7..18765c2ef 100644
 +                :required="isEditable"
 +                :placeholder="isEditable ? t('password') : 'admin'"
 +              />
++              <FormInput value="admin" placeholder="admin" disabled />
              </VtsInputWrapper>
            </div>
          </FormSection>
@@ -168,16 +159,14 @@ index 26937a4d7..18765c2ef 100644
 +                :disabled="!isEditable || !enableSshAccount"
 +                :required="isEditable && enableSshAccount"
                />
++              <FormInput value="xopass" placeholder="xopass" disabled />
++            </VtsInputWrapper>
++            <VtsInputWrapper :label="t('ssh-password-confirm')">
++              <FormInput value="xopass" placeholder="xopass" disabled />
              </VtsInputWrapper>
            </div>
-@@ -209,12 +247,59 @@ import { useFormSelect } from '@core/packages/form-select'
- import { useModal } from '@core/packages/modal/use-modal.ts'
- import { useUiStore } from '@core/stores/ui.store'
- import { logicNot } from '@vueuse/math'
--import { computed, ref } from 'vue'
-+import { computed, ref, watch } from 'vue'
- import { useI18n } from 'vue-i18n'
- import { useRouter } from 'vue-router'
+         </FormSection>
+@@ -215,6 +260,74 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
  
  const REQUIRED_GB = 20
  
@@ -226,12 +215,33 @@ index 26937a4d7..18765c2ef 100644
 +    params.set('verify_ssl', 'false')
 +  }
 +  return `http://${XOA_PROXY_BIND_ADDRESS}:${XOA_PROXY_PORT}/image.xva?${params.toString()}`
++// ── XOA image source & proxy ──────────────────────────────────────────────────
++//
++// The official XOA appliance image is distributed as a gzip-compressed XVA
++// over HTTPS. XAPI's VM.import speaks only HTTP and expects an uncompressed
++// stream, so we route through xoa-proxy.py running on Dom0.
++//
++// XOA_SOURCE_URL: update this to the current Vates download URL.
++//   Format:  https://<host>/path/to/xoa-<version>.xva.gz
++//   Obtain the signed URL from https://vates.tech/deploy/ if required.
++//
++// XOA_PROXY_PORT: must match the PORT constant in xoa-proxy.py (default 9001).
++//   The proxy listens on 127.0.0.1 — reachable by XAPI on the same Dom0 host.
++//
++// VM.import receives: http://127.0.0.1:9001/image.xva?src=<encoded-source-url>
++// xoa-proxy.py fetches the src URL via HTTPS, gunzips on-the-fly, streams back.
++const XOA_SOURCE_URL = 'https://xoa.io/xoa-lts.xva.gz'
++const XOA_PROXY_PORT = 9001
++
++/** Builds the local proxy URL that VM.import will pull from. */
++function buildProxyUrl(sourceUrl: string): string {
++  return `http://127.0.0.1:${XOA_PROXY_PORT}/image.xva?src=${encodeURIComponent(sourceUrl)}`
 +}
 +
  const { t } = useI18n()
  const router = useRouter()
  
-@@ -307,12 +392,44 @@ const ip = ref('')
+@@ -342,12 +455,44 @@ const ip = ref('')
  const netmask = ref('')
  const dns = ref('')
  const gateway = ref('')
@@ -281,7 +291,7 @@ index 26937a4d7..18765c2ef 100644
  
  async function deploy() {
    if (selectedSr.value === undefined || selectedNetwork.value === undefined) {
-@@ -332,7 +449,7 @@ async function deploy() {
+@@ -367,7 +512,7 @@ async function deploy() {
  
    if (xoaUser.value === '' || xoaPwd.value === '') {
      // Should not happen
@@ -290,7 +300,7 @@ index 26937a4d7..18765c2ef 100644
      return
    }
  
-@@ -344,7 +461,7 @@ async function deploy() {
+@@ -379,7 +524,7 @@ async function deploy() {
  
    if (enableSshAccount.value && sshPwd.value === '') {
      // Should not happen
@@ -299,7 +309,7 @@ index 26937a4d7..18765c2ef 100644
      return
    }
  
-@@ -359,9 +476,20 @@ async function deploy() {
+@@ -394,9 +539,28 @@ async function deploy() {
    try {
      status.value = t('deploy-xoa-status:importing')
  
@@ -314,46 +324,35 @@ index 26937a4d7..18765c2ef 100644
 +            verifySsl.value
 +          )
 +
-     vmRef.value = (
-       (await xapi.call('VM.import', [
--        'http://xoa.io/xva',
++    vmRef.value = (
++      (await xapi.call('VM.import', [
 +        importUrl,
-         selectedSr.value.$ref,
-         false, // full_restore
-         false, // force
-@@ -371,7 +499,10 @@ async function deploy() {
-=======
-index 26937a4d7..8fac217e3 100644
---- a/@xen-orchestra/lite/src/pages/xoa-deploy.vue
-+++ b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
-@@ -361,7 +361,7 @@ async function deploy() {
- 
++    // xoa-proxy.py (running on Dom0) fetches XOA_SOURCE_URL via HTTPS,
++    // decompresses the .xva.gz on-the-fly, and serves the raw .xva over HTTP.
++    // XAPI's VM.import then consumes the plain HTTP stream directly.
++    const proxyUrl = buildProxyUrl(XOA_SOURCE_URL)
++
      vmRef.value = (
        (await xapi.call('VM.import', [
 -        'http://xoa.io/xva',
-+        'http://192.168.0.1:3000/image.xva',
++        proxyUrl,
          selectedSr.value.$ref,
          false, // full_restore
          false, // force
-@@ -371,7 +371,10 @@ async function deploy() {
->>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
+@@ -406,7 +570,11 @@ async function deploy() {
      status.value = t('deploy-xoa-status:configuring')
  
      const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
 -    await xapi.call('VIF.destroy', [vifRef])
 +
 +    if (vifRef !== undefined) {
-<<<<<<< HEAD
++    if (vifRef.length > 0) {
 +      await xapi.call('VIF.destroy', [vifRef])
-=======
-+    	await xapi.call('VIF.destroy', [vifRef])
->>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
 +    }
  
      if (!deploying.value) {
        return
-<<<<<<< HEAD
-@@ -508,6 +639,29 @@ async function cancel() {
+@@ -545,6 +713,29 @@ async function cancel() {
    }
  }
  
@@ -384,10 +383,10 @@ index 26937a4d7..8fac217e3 100644
    vertical-align: middle;
  }
 diff --git a/@xen-orchestra/web-core/lib/locales/en.json b/@xen-orchestra/web-core/lib/locales/en.json
-index 635202c11..6e175a7b5 100644
+index 689a89dfa..c814678f1 100644
 --- a/@xen-orchestra/web-core/lib/locales/en.json
 +++ b/@xen-orchestra/web-core/lib/locales/en.json
-@@ -279,6 +279,7 @@
+@@ -287,6 +287,7 @@
    "current": "Current",
    "current-attach": "Current attach",
    "custom-fields": "Custom fields",
@@ -395,7 +394,7 @@ index 635202c11..6e175a7b5 100644
    "dark-mode:auto": "Auto dark mode",
    "dark-mode:disable": "Disable dark mode",
    "dark-mode:enable": "Enable dark mode",
-@@ -848,6 +849,7 @@
+@@ -866,6 +867,7 @@
    "resources-overview": "Resources overview",
    "rest-api": "REST API",
    "retry": "Retry",
@@ -403,15 +402,15 @@ index 635202c11..6e175a7b5 100644
    "root-by-default": "\"root\" by default.",
    "rule-type": "Rule type",
    "run": "Run",
-@@ -1024,6 +1026,7 @@
-   "vbd-delete-title": "You are about to delete 1 VBD | You are about to delete {n} VBDs",
-   "vbd-disconnect-info": "The VM will no longer have access to the VDI. The disk remains attached and you can reconnect later.",
-   "vbd-disconnect-title": "You are about to disconnect 1 VBD | You are about to disconnect {n} VBDs",
+@@ -1049,6 +1051,7 @@
+   "user-config": "User config",
+   "username": "Username",
+   "uuid": "UUID",
 +  "vates-image": "Vates image",
    "vcpu": "vCPU",
+   "vcpu-at-startup": "vCPU at startup",
    "vcpus": "vCPUs",
-   "vcpus-assigned": "vCPUs assigned",
-@@ -1035,6 +1038,7 @@
+@@ -1066,6 +1069,7 @@
    "vdi-throughput": "VDI throughput",
    "vdis": "VDIs",
    "version": "Version",
@@ -419,7 +418,7 @@ index 635202c11..6e175a7b5 100644
    "vga": "VGA",
    "video-ram": "Video RAM",
    "vif": "VIF",
-@@ -1110,6 +1114,7 @@
+@@ -1141,6 +1145,7 @@
    "xoa-deploy-failed!": "Sorry, deployment failed!",
    "xoa-deploy-retry": "Try again to deploy XOA",
    "xoa-deploy-successful!": "XOA deployment successful!",
@@ -427,5 +426,3 @@ index 635202c11..6e175a7b5 100644
    "xoa-ip": "XOA IP address",
    "xoa-password-confirm-different": "XOA password confirmation is different",
    "xoa-ssh-account": "XOA SSH account",
-=======
->>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e

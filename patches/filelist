@@ -1,0 +1,3 @@
+@xen-orchestra/lite/scripts/xolite-loader.html
+@xen-orchestra/lite/src/pages/xoa-deploy.vue
+@xen-orchestra/web-core/lib/locales/en.json
