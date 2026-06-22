@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="theme-color" content="#cc584c" />
+    <title>XO Lite</title>
+    <script>
+      ;(async () => {
+        document.open()
+        document.write(await (await fetch('./xolite.html')).text())
+        document.close()
+      })()
+    </script>
+  </head>
+</html>
