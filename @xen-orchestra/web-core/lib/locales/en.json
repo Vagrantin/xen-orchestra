@@ -1051,15 +1051,7 @@
   "user-config": "User config",
   "username": "Username",
   "uuid": "UUID",
-<<<<<<< HEAD
   "vates-image": "Vates image",
-  "vbd-connect-title": "You are about to connect 1 VBD | You are about to connect {n} VBDs",
-  "vbd-delete-info": "This will detach the selected VDI from the VM. The disk will not be deleted and can be reattached later.",
-  "vbd-delete-title": "You are about to delete 1 VBD | You are about to delete {n} VBDs",
-  "vbd-disconnect-info": "The VM will no longer have access to the VDI. The disk remains attached and you can reconnect later.",
-  "vbd-disconnect-title": "You are about to disconnect 1 VBD | You are about to disconnect {n} VBDs",
-=======
->>>>>>> master
   "vcpu": "vCPU",
   "vcpu-at-startup": "vCPU at startup",
   "vcpus": "vCPUs",
