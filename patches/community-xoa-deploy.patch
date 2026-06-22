@@ -1,5 +1,9 @@
 diff --git a/@xen-orchestra/lite/scripts/xolite-loader.html b/@xen-orchestra/lite/scripts/xolite-loader.html
+<<<<<<< HEAD
 index 9d48835c7..f1ad24a16 100644
+=======
+index 9d48835c7..13c73bd31 100644
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
 --- a/@xen-orchestra/lite/scripts/xolite-loader.html
 +++ b/@xen-orchestra/lite/scripts/xolite-loader.html
 @@ -7,23 +7,9 @@
@@ -19,6 +23,7 @@ index 9d48835c7..f1ad24a16 100644
 -        } catch (err) {
 -          console.log(err?.message ?? err)
 -          // Fallback to local version of XO Lite
+<<<<<<< HEAD
 -          document.open()
 -          document.write(await (await fetch('./xolite.html')).text())
 -          document.close()
@@ -26,10 +31,17 @@ index 9d48835c7..f1ad24a16 100644
 +        document.open()
 +        document.write(await (await fetch('./xolite.html')).text())
 +        document.close()
+=======
+           document.open()
+           document.write(await (await fetch('./xolite.html')).text())
+           document.close()
+-        }
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
        })()
      </script>
    </head>
 diff --git a/@xen-orchestra/lite/src/pages/xoa-deploy.vue b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
+<<<<<<< HEAD
 index 26937a4d7..18765c2ef 100644
 --- a/@xen-orchestra/lite/src/pages/xoa-deploy.vue
 +++ b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
@@ -310,17 +322,37 @@ index 26937a4d7..18765c2ef 100644
          false, // full_restore
          false, // force
 @@ -371,7 +499,10 @@ async function deploy() {
+=======
+index 26937a4d7..8fac217e3 100644
+--- a/@xen-orchestra/lite/src/pages/xoa-deploy.vue
++++ b/@xen-orchestra/lite/src/pages/xoa-deploy.vue
+@@ -361,7 +361,7 @@ async function deploy() {
+ 
+     vmRef.value = (
+       (await xapi.call('VM.import', [
+-        'http://xoa.io/xva',
++        'http://192.168.0.1:3000/image.xva',
+         selectedSr.value.$ref,
+         false, // full_restore
+         false, // force
+@@ -371,7 +371,10 @@ async function deploy() {
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
      status.value = t('deploy-xoa-status:configuring')
  
      const [vifRef] = (await xapi.call('VM.get_VIFs', [vmRef.value])) as string[]
 -    await xapi.call('VIF.destroy', [vifRef])
 +
 +    if (vifRef !== undefined) {
+<<<<<<< HEAD
 +      await xapi.call('VIF.destroy', [vifRef])
+=======
++    	await xapi.call('VIF.destroy', [vifRef])
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
 +    }
  
      if (!deploying.value) {
        return
+<<<<<<< HEAD
 @@ -508,6 +639,29 @@ async function cancel() {
    }
  }
@@ -352,10 +384,10 @@ index 26937a4d7..18765c2ef 100644
    vertical-align: middle;
  }
 diff --git a/@xen-orchestra/web-core/lib/locales/en.json b/@xen-orchestra/web-core/lib/locales/en.json
-index 2c9a06e85..18706266c 100644
+index 635202c11..6e175a7b5 100644
 --- a/@xen-orchestra/web-core/lib/locales/en.json
 +++ b/@xen-orchestra/web-core/lib/locales/en.json
-@@ -262,6 +262,7 @@
+@@ -279,6 +279,7 @@
    "current": "Current",
    "current-attach": "Current attach",
    "custom-fields": "Custom fields",
@@ -363,23 +395,23 @@ index 2c9a06e85..18706266c 100644
    "dark-mode:auto": "Auto dark mode",
    "dark-mode:disable": "Disable dark mode",
    "dark-mode:enable": "Enable dark mode",
-@@ -788,6 +789,7 @@
+@@ -848,6 +849,7 @@
    "resources-overview": "Resources overview",
    "rest-api": "REST API",
    "retry": "Retry",
 +  "ronivay-image": "Ronivay's image",
    "root-by-default": "\"root\" by default.",
+   "rule-type": "Rule type",
    "run": "Run",
-   "running-vm": "Running VM | Running VMs",
-@@ -951,6 +953,7 @@
-   "user-config": "User config",
-   "username": "Username",
-   "uuid": "UUID",
-+  "vates-image": "Vates image",
-   "vbd-connect-title": "You are about to connect 1 VBD | You are about to connect {n} VBDs",
-   "vbd-delete-info": "This will detach the selected VDI from the VM. The disk will not be deleted and can be reattached later.",
+@@ -1024,6 +1026,7 @@
    "vbd-delete-title": "You are about to delete 1 VBD | You are about to delete {n} VBDs",
-@@ -964,6 +967,7 @@
+   "vbd-disconnect-info": "The VM will no longer have access to the VDI. The disk remains attached and you can reconnect later.",
+   "vbd-disconnect-title": "You are about to disconnect 1 VBD | You are about to disconnect {n} VBDs",
++  "vates-image": "Vates image",
+   "vcpu": "vCPU",
+   "vcpus": "vCPUs",
+   "vcpus-assigned": "vCPUs assigned",
+@@ -1035,6 +1038,7 @@
    "vdi-throughput": "VDI throughput",
    "vdis": "VDIs",
    "version": "Version",
@@ -387,7 +419,7 @@ index 2c9a06e85..18706266c 100644
    "vga": "VGA",
    "video-ram": "Video RAM",
    "vif": "VIF",
-@@ -1035,6 +1039,7 @@
+@@ -1110,6 +1114,7 @@
    "xoa-deploy-failed!": "Sorry, deployment failed!",
    "xoa-deploy-retry": "Try again to deploy XOA",
    "xoa-deploy-successful!": "XOA deployment successful!",
@@ -395,3 +427,5 @@ index 2c9a06e85..18706266c 100644
    "xoa-ip": "XOA IP address",
    "xoa-password-confirm-different": "XOA password confirmation is different",
    "xoa-ssh-account": "XOA SSH account",
+=======
+>>>>>>> 5996b23ac21d6273390628c961284ae13c51a30e
