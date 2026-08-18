@@ -446,6 +446,11 @@ export default class Menu extends Component {
             icon: 'menu-settings-config',
             label: 'xoConfig',
           },
+          {
+            to: '/settings/xoa-hl-updates',
+            icon: 'upgrade',
+            label: 'settingsXoaHlUpdatesPage',
+          },
         ],
       },
       isAdmin && {

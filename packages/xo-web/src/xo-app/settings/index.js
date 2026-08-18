@@ -17,17 +17,20 @@ import Plugins from './plugins'
 import Remotes from './remotes'
 import Servers from './servers'
 import Users from './users'
+import XoaHlUpdates from './xoa-hl-updates'
 
 const HEADER = (
   <Container>
     <Row>
-      <Col mediumSize={3}>
+      <Col>
         <h2>
           <Icon icon='menu-settings' /> {_('settingsPage')}
         </h2>
       </Col>
-      <Col mediumSize={9}>
-        <NavTabs className='pull-right'>
+    </Row>
+    <Row>
+      <Col>
+        <NavTabs>
           <NavLink to='/settings/servers'>
             <Icon icon='menu-settings-servers' /> {_('settingsServersPage')}
           </NavLink>
@@ -61,6 +64,9 @@ const HEADER = (
           <NavLink to='/settings/config'>
             <Icon icon='menu-settings-config' /> {_('xoConfig')}
           </NavLink>
+          <NavLink to='/settings/xoa-hl-updates'>
+            <Icon icon='upgrade' /> {_('settingsXoaHlUpdatesPage')}
+          </NavLink>
         </NavTabs>
       </Col>
     </Row>
@@ -79,6 +85,7 @@ const Settings = routes('servers', {
   remotes: Remotes,
   servers: Servers,
   users: Users,
+  'xoa-hl-updates': XoaHlUpdates,
 })(
   adminOnly(({ children }) => (
     <Page header={HEADER} title='settingsPage' formatTitle>

@@ -884,6 +884,14 @@ export const exportConfig = () =>
     noop
   )
 
+// XOA-HL --------------------------------------------------------------------
+
+export const getXoaHlVersion = () => _call('xoaHl.getVersion')
+export const checkXoaHlUpdate = () => _call('xoaHl.checkForUpdate')
+export const getXoaHlUpdateStatus = () => _call('xoaHl.getUpdateStatus')
+export const startXoaHlUpdate = () => _call('xoaHl.startUpdate')
+export const getXoaHlUpdateProgress = () => _call('xoaHl.getUpdateProgress')
+
 // Server ------------------------------------------------------------
 
 export const addServer = (host, username, password, label, allowUnauthorized, httpProxy) =>
