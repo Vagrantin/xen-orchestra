@@ -55,6 +55,22 @@ const _isXsWithCdnUpdates = host => _isXs(host) && semver.gt(host.software_versi
 
 const LISTING_DEBOUNCE_TIME_MS = 60000
 
+// XCP-ng HomeLab Edition package repositories, passed to the updater.py plugin
+// below as its `repos` argument.
+//
+// XCP-ng's /etc/xapi.d/plugins/updater.py only ever considers a fixed allowlist:
+//
+//     DEFAULT_REPOS = ('xcp-ng-base', 'xcp-ng-updates', 'xcp-ng-linstor')
+//     repos = list(DEFAULT_REPOS) + (additional_repos or '').split(',')
+//     return [x.id for x in enabled_repos if x.id in repos]
+//
+// so a repository has to be both enabled on the host and named here.
+//
+// These IDs correspond to the repository name in the xcp-hl-release package, which owns
+// /etc/yum.repos.d/xcp-hl.repo. The updater plugin don't validates, so a name that does
+// not match anything on the host will not be processed. Keep the two in sync.
+const XCP_HL_REPOS = 'xcp-hl-base,xcp-hl-xolite,xcp-hl-xoa-proxy'
+
 async function _listMissingPatches(hostId) {
   const host = this.getObject(hostId)
   return _isXcp(host)
@@ -163,7 +179,9 @@ const methods = {
   // list all yum updates available for a XCP-ng host
   // (hostObject) → { uuid: patchObject }
   async _listXcpUpdates(host) {
-    const result = JSON.parse(await this.call('host.call_plugin', host.$ref, 'updater.py', 'check_update', {}))
+    const result = JSON.parse(
+      await this.call('host.call_plugin', host.$ref, 'updater.py', 'check_update', { repos: XCP_HL_REPOS })
+    )
 
     if (result.error != null) {
       throw new Error(result.error)
@@ -416,7 +434,11 @@ const methods = {
     hosts = hosts.sort(({ $ref }) => ($ref === this.pool.master ? -1 : 1))
     for (const host of hosts) {
       // With throw in case of error with XCP-ng>=8.2.1
-      const result = await this.callAsync('host.call_plugin', host.$ref, 'updater.py', 'update', {})
+      // Same repos argument as the listing above: without it the plugin would
+      // offer XCP-HL updates in the UI and then refuse to install them, because
+      // install_helper applies the identical allowlist when it builds
+      // `yum update --disablerepo=* --enablerepo=<list> -y`.
+      const result = await this.callAsync('host.call_plugin', host.$ref, 'updater.py', 'update', { repos: XCP_HL_REPOS })
 
       // Defined and different than 0 in case of error with XCP-ng<8.2.1
       const { exit } = result

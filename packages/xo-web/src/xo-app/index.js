@@ -476,14 +476,14 @@ export default class XoApp extends Component {
               {plan === 'Community' && !this.state.dismissedSourceBanner && (
                 <div className='alert alert-danger mb-0'>
                   <a
-                    href='https://vates.tech/deploy/?pk_campaign=xo_source_banner'
+                    href='https://vagrantin.github.io/xcp-hl/'
                     rel='noopener noreferrer'
                     target='_blank'
                   >
                     {_('disclaimerText3')}
                   </a>{' '}
                   <a
-                    href='https://docs.xen-orchestra.com/installation#banner-and-warnings'
+                    href='https://vagrantin.github.io/xcp-hl/'
                     rel='noopener noreferrer'
                     target='_blank'
                   >
