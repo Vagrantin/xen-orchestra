@@ -1,30 +1,28 @@
 import _ from 'intl'
 import ActionButton from 'action-button'
 import Component from 'base-component'
-import Icon from 'icon'
 import React from 'react'
-import { checkXoaHlUpdate, getXoaHlUpdateProgress, getXoaHlUpdateStatus, getXoaHlVersion, startXoaHlUpdate } from 'xo'
+import { checkXoaHlUpdate, getXoaHlUpdateProgress, getXoaHlUpdateStatus, startXoaHlUpdate } from 'xo'
 
 // ===================================================================
 
 export default class XoaHlUpdates extends Component {
-  componentWillMount() {
+  constructor(props) {
+    super(props)
     this.state = {
-      version: undefined,
       checking: false,
       updateAvailable: false,
-      latestVersion: undefined,
+      packages: [],
       updating: false,
       log: [],
     }
-    getXoaHlVersion().then(version => this.setState({ version }))
   }
 
   _checkForUpdate = async () => {
     this.setState({ checking: true })
     await checkXoaHlUpdate()
-    const { updateAvailable, latestVersion } = await getXoaHlUpdateStatus()
-    this.setState({ checking: false, updateAvailable, latestVersion })
+    const { updateAvailable, packages } = await getXoaHlUpdateStatus()
+    this.setState({ checking: false, updateAvailable, packages })
   }
 
   _startUpdate = async () => {
@@ -35,33 +33,39 @@ export default class XoaHlUpdates extends Component {
   }
 
   render() {
-    const { version, checking, updateAvailable, latestVersion, log } = this.state
+    const { checking, updateAvailable, packages, log } = this.state
 
     return (
       <div>
-        <p>
-          {_('xoaHlInstalledVersion')} {version === undefined ? '-' : String(version)}
-        </p>
-        <p>
-          {updateAvailable ? (
-            <span>
-              {_('xoaHlUpdateAvailable')} {latestVersion}
-            </span>
-          ) : (
-            _('xoaHlUpToDate')
-          )}
-        </p>
         <ActionButton btnStyle='info' handler={this._checkForUpdate} icon='refresh' pending={checking}>
           {_('xoaHlCheckForUpdate')}
         </ActionButton>{' '}
-        <ActionButton
-          btnStyle='success'
-          disabled={!updateAvailable}
-          handler={this._startUpdate}
-          icon='upgrade'
-        >
+        <ActionButton btnStyle='success' disabled={!updateAvailable} handler={this._startUpdate} icon='upgrade'>
           {_('xoaHlStartUpdate')}
         </ActionButton>
+        {updateAvailable && packages.length > 0 ? (
+          <div>
+            <p>{_('xoaHlPackagesAvailable')}</p>
+            <table className='table'>
+              <thead>
+                <tr>
+                  <th>{_('xoaHlPackageName')}</th>
+                  <th>{_('xoaHlPackageVersion')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {packages.map(({ name, version }) => (
+                  <tr key={name}>
+                    <td>{name}</td>
+                    <td>{version}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>{_('xoaHlUpToDate')}</p>
+        )}
         {log.length > 0 && (
           <div>
             <hr />

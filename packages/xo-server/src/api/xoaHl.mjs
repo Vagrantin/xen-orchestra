@@ -34,20 +34,22 @@ export async function getUpdateStatus() {
     content = await readFile(STATUS_FILE, 'utf8')
   } catch (error) {
     // never checked yet
-    return { checking: false, updateAvailable: false }
+    return { checking: false, updateAvailable: false, packages: [] }
   }
 
-  const status = content.trim()
-  if (status === 'UP_TO_DATE') {
-    return { checking: false, updateAvailable: false }
+  const [header, ...lines] = content.trim().split('\n')
+  if (header !== 'AVAILABLE') {
+    return { checking: false, updateAvailable: false, packages: [] }
   }
 
-  const match = status.match(/^AVAILABLE (.+)$/)
-  if (match !== null) {
-    return { checking: false, updateAvailable: true, latestVersion: match[1] }
-  }
+  const packages = lines
+    .filter(line => line !== '')
+    .map(line => {
+      const [name, version] = line.split('\t')
+      return { name, version }
+    })
 
-  return { checking: false, updateAvailable: false }
+  return { checking: false, updateAvailable: packages.length > 0, packages }
 }
 getUpdateStatus.permission = 'admin'
 getUpdateStatus.description = 'get the latest xoa-hl update check result'
