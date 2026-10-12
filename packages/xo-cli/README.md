@@ -232,6 +232,12 @@ booleans) are assumed as strings by default, other types must be encoded as JSON
 > xo-cli method string=foo number=json:42 array=json:'["item1", "item2"]'
 ```
 
+To pass the string `true` or `false`, encode it as JSON too:
+
+```
+> xo-cli method string=json:'"true"'
+```
+
 ##### Configuration export
 
 ```
