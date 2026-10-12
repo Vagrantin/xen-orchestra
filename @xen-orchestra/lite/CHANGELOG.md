@@ -2,6 +2,7 @@
 
 ## **next**
 
+- [Header] Fix `Reduce of empty array with no initial value` error on pools without an XOA (PR [#XXXXX](https://github.com/vatesfr/xen-orchestra/pull/XXXXX))
 - [VM/System] Fix video RAM displayed in bytes instead of MiB (PR [#10486](https://github.com/vatesfr/xen-orchestra/pull/10486))
 - [Treeview] Add a search bar and virtualize the tree (PR [#10414](https://github.com/vatesfr/xen-orchestra/pull/10414))
 - [New/VM] Hide guest tools ISO SR in new VM ISO selector (PR [#10430](https://github.com/vatesfr/xen-orchestra/pull/10430))

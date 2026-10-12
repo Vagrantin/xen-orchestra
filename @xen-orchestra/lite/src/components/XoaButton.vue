@@ -69,8 +69,10 @@ const xoaInfo = computed(() => {
     return
   }
 
-  return Object.values(xoasInfo.value).reduce((lastXoaInfo, info) =>
-    lastXoaInfo === undefined || info.lastConnected > lastXoaInfo.lastConnected ? info : lastXoaInfo
+  return Object.values(xoasInfo.value).reduce<ClientInfo | undefined>(
+    (lastXoaInfo, info) =>
+      lastXoaInfo === undefined || info.lastConnected > lastXoaInfo.lastConnected ? info : lastXoaInfo,
+    undefined
   )
 })
 
